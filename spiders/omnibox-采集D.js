@@ -1,5 +1,5 @@
 // @name 影视采集D(合并6源)
-// @version 3.20261030.1219
+// @version 3.20261030.1223
 // @description 自动同步：采集聚合
 // @downloadURL https://gh-proxy.com/https://raw.githubusercontent.com/Metruee/tv4me/main/spiders/omnibox-采集D.js
 // @dependencies axios,cheerio,crypto-js

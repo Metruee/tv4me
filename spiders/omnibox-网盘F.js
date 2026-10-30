@@ -1,5 +1,5 @@
 // @name 网盘影视F(合并3源)
-// @version 3.20261030.1219
+// @version 3.20261030.1223
 // @description 自动同步：网盘聚合
 // @downloadURL https://gh-proxy.com/https://raw.githubusercontent.com/Metruee/tv4me/main/spiders/omnibox-网盘F.js
 // @dependencies axios,cheerio,crypto-js
