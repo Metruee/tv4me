@@ -1,0 +1,154 @@
+[
+ {
+  "name": "影视采集A(合并11源)",
+  "desc": "合并可用采集站 11 个",
+  "version": "2.20261030.1",
+  "files": [
+   "影视/采集/3Q影视.js",
+   "影视/采集/88看球.js",
+   "影视/采集/iKanBot.js",
+   "影视/采集/凡客TV.js",
+   "影视/采集/枝枝影视.js",
+   "影视/采集/柯南影视.js",
+   "影视/采集/歪比巴卜.js",
+   "影视/采集/毒舌影视.js",
+   "影视/采集/热播.js",
+   "影视/采集/荐片.js",
+   "影视/采集/莫小影.js"
+  ],
+  "out": "spiders/omnibox-采集A.js",
+  "download": "https://gh-proxy.com/https://raw.githubusercontent.com/Metruee/tv4me/main/spiders/omnibox-采集A.js"
+ },
+ {
+  "name": "影视采集B(合并11源)",
+  "desc": "合并可用采集站 11 个",
+  "version": "2.20261030.1",
+  "files": [
+   "影视/采集/123TV.js",
+   "影视/采集/HDmoli.js",
+   "影视/采集/PPnix.js",
+   "影视/采集/七味.js",
+   "影视/采集/乐兔.js",
+   "影视/采集/在线之家.js",
+   "影视/采集/太二影视.js",
+   "影视/采集/影视大全.js",
+   "影视/采集/毒舌03.js",
+   "影视/采集/独播库.js",
+   "影视/采集/袋鼠影视.js"
+  ],
+  "out": "spiders/omnibox-采集B.js",
+  "download": "https://gh-proxy.com/https://raw.githubusercontent.com/Metruee/tv4me/main/spiders/omnibox-采集B.js"
+ },
+ {
+  "name": "影视采集C(合并11源)",
+  "desc": "合并可用采集站 11 个",
+  "version": "2.20261030.1",
+  "files": [
+   "影视/解析/movie360.js",
+   "影视/采集/4KMP.js",
+   "影视/采集/如意资源.js",
+   "影视/采集/小黑米.js",
+   "影视/采集/影猫仓库.js",
+   "影视/采集/新韩剧网.js",
+   "影视/采集/枫叶.js",
+   "影视/采集/爱奇艺资源站.js",
+   "影视/采集/瓜子.js",
+   "影视/采集/电影天堂.js",
+   "影视/采集/金牌.js"
+  ],
+  "out": "spiders/omnibox-采集C.js",
+  "download": "https://gh-proxy.com/https://raw.githubusercontent.com/Metruee/tv4me/main/spiders/omnibox-采集C.js"
+ },
+ {
+  "name": "网盘影视A(合并6源)",
+  "desc": "合并可用网盘站 6 个",
+  "version": "2.20261030.1",
+  "files": [
+   "影视/网盘/4K指南.js",
+   "影视/网盘/七味分组.js",
+   "影视/网盘/玩偶.js",
+   "影视/网盘/玩偶聚合-非分组.js",
+   "影视/网盘/玩偶聚合.js",
+   "影视/网盘/闪电.js"
+  ],
+  "out": "spiders/omnibox-网盘A.js",
+  "download": "https://gh-proxy.com/https://raw.githubusercontent.com/Metruee/tv4me/main/spiders/omnibox-网盘A.js"
+ },
+ {
+  "name": "网盘影视B(合并6源)",
+  "desc": "合并可用网盘站 6 个",
+  "version": "2.20261030.1",
+  "files": [
+   "影视/网盘/多多.js",
+   "影视/网盘/快映.js",
+   "影视/网盘/木偶.js",
+   "影视/网盘/欧哥.js",
+   "影视/网盘/至臻.js",
+   "影视/网盘/虎斑.js"
+  ],
+  "out": "spiders/omnibox-网盘B.js",
+  "download": "https://gh-proxy.com/https://raw.githubusercontent.com/Metruee/tv4me/main/spiders/omnibox-网盘B.js"
+ },
+ {
+  "name": "短剧聚合(合并)",
+  "desc": "合并可用短剧源 4 个",
+  "version": "2.20261030.1",
+  "files": [
+   "短剧/星星短剧.js",
+   "短剧/河马短剧.js",
+   "短剧/短剧粉.js",
+   "短剧/短剧网.js"
+  ],
+  "out": "spiders/omnibox-短剧.js",
+  "download": "https://gh-proxy.com/https://raw.githubusercontent.com/Metruee/tv4me/main/spiders/omnibox-短剧.js"
+ },
+ {
+  "name": "音乐听书聚合(合并)",
+  "desc": "合并可用音乐/听书源 7 个",
+  "version": "2.20261030.1",
+  "files": [
+   "音乐/DJ音乐.js",
+   "音乐/世纪音乐.js",
+   "音乐/枫叶音乐.js",
+   "音乐/芸芸音乐.js",
+   "听书/275听书.js",
+   "听书/博看听书.js",
+   "听书/酷我听书.js"
+  ],
+  "out": "spiders/omnibox-音乐听书.js",
+  "download": "https://gh-proxy.com/https://raw.githubusercontent.com/Metruee/tv4me/main/spiders/omnibox-音乐听书.js"
+ },
+ {
+  "name": "教育(合并)",
+  "desc": "合并可用教育源：1-9年级/高中课程 + 幼儿早教",
+  "version": "2.20261030.1",
+  "files": [
+   "教育/哔哩教育.js",
+   "教育/贝乐虎.js"
+  ],
+  "out": "spiders/omnibox-教育.js",
+  "download": "https://gh-proxy.com/https://raw.githubusercontent.com/Metruee/tv4me/main/spiders/omnibox-教育.js"
+ },
+ {
+  "name": "动漫(合并)",
+  "desc": "合并可用动漫源",
+  "version": "2.20261030.1",
+  "files": [
+   "动漫/樱花动漫.js"
+  ],
+  "out": "spiders/omnibox-动漫.js",
+  "download": "https://gh-proxy.com/https://raw.githubusercontent.com/Metruee/tv4me/main/spiders/omnibox-动漫.js"
+ },
+ {
+  "name": "综合导航(合并)",
+  "desc": "合并可用综合/导航源",
+  "version": "2.20261030.1",
+  "files": [
+   "综合/哔哩大全.js",
+   "导航/MakkaPakka聚合导航.js",
+   "导航/豆瓣推荐.js"
+  ],
+  "out": "spiders/omnibox-综合导航.js",
+  "download": "https://gh-proxy.com/https://raw.githubusercontent.com/Metruee/tv4me/main/spiders/omnibox-综合导航.js"
+ }
+]
