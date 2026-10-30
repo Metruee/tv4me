@@ -1,5 +1,5 @@
-// @name 影视采集C(合并11源)
-// @version 2.20261030.1
+// @name 影视采集C(合并13源)
+// @version 2.20261030.3
 // @description 自动同步：采集聚合
 // @downloadURL https://gh-proxy.com/https://raw.githubusercontent.com/Metruee/tv4me/main/spiders/omnibox-采集C.js
 // @dependencies axios,cheerio,crypto-js
@@ -1171,1162 +1171,386 @@ async function play(params, context) {
 
 });
 
-_load(2, "如意资源", function (module, exports, require) {
-// @name 如意资源
-// @author 
-// @description 刮削：支持，弹幕：支持，嗅探：支持，类型筛选：支持
-// @version 1.0.2
-// @downloadURL https://gh-proxy.org/https://github.com/Silent1566/OmniBox-Spider/raw/refs/heads/main/影视/采集/如意资源.js
-
-const OmniBox = require("omnibox_sdk");
-
-/**
- * 配置信息
- */
-const ruyiConfig = {
-  apiUrls: [
-    "https://cj.rycjapi.com/api.php/provide/vod",
-    "https://cj.rytvapi.com/api.php/provide/vod",
-    "https://bycj.rytvapi.com/api.php/provide/vod"
-  ],
-  imgHosts: ["https://ps.ryzypics.com", "https://ry-pic.com", "https://img.lzzyimg.com"],
-  danmuApi: process.env.DANMU_API || "",
-  headers: {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-    'Accept': 'application/json',
-    'Accept-Language': 'zh-CN,zh;q=0.9',
-    'Referer': 'https://cj.rycjapi.com/'
-  },
-  timeout: 15000,
-  batchSize: 20
-};
-
-// 硬编码的分类数据
-const HARDCODED_CLASSES = [
-  { type_id: "1", type_name: "电影片" },
-  { type_id: "2", type_name: "连续剧" },
-  { type_id: "3", type_name: "综艺片" },
-  { type_id: "4", type_name: "动漫片" },
-  { type_id: "35", type_name: "电影解说" },
-  { type_id: "36", type_name: "体育" }
-];
-
-// 硬编码的子分类映射
-const HARDCODED_SUB_CLASS_MAP = new Map([
-  ["1", ["7", "6", "8", "9", "10", "11", "12", "20", "34", "45", "47"]],  // 电影片
-  ["2", ["13", "14", "15", "16", "21", "22", "23", "24", "46"]],           // 连续剧
-  ["3", ["25", "26", "27", "28"]],                                          // 综艺片
-  ["4", ["29", "30", "31", "32", "33"]],                                    // 动漫片
-  ["35", []],  // 电影解说
-  ["36", ["37", "38", "39", "40"]]                                          // 体育
-]);
-
-// 硬编码的类型选项
-const HARDCODED_TYPE_OPTIONS = {
-  "1": [  // 电影片
-    { name: "动作片", value: "7" },
-    { name: "喜剧片", value: "8" },
-    { name: "爱情片", value: "9" },
-    { name: "科幻片", value: "10" },
-    { name: "恐怖片", value: "11" },
-    { name: "剧情片", value: "12" },
-    { name: "战争片", value: "6" },
-    { name: "记录片", value: "20" },
-    { name: "伦理片", value: "34" },
-    { name: "预告片", value: "45" },
-    { name: "动画电影", value: "47" }
-  ],
-  "2": [  // 连续剧
-    { name: "国产剧", value: "13" },
-    { name: "香港剧", value: "14" },
-    { name: "韩国剧", value: "15" },
-    { name: "欧美剧", value: "16" },
-    { name: "台湾剧", value: "21" },
-    { name: "日本剧", value: "22" },
-    { name: "海外剧", value: "23" },
-    { name: "泰国剧", value: "24" },
-    { name: "短剧", value: "46" }
-  ],
-  "3": [  // 综艺片
-    { name: "大陆综艺", value: "25" },
-    { name: "港台综艺", value: "26" },
-    { name: "日韩综艺", value: "27" },
-    { name: "欧美综艺", value: "28" }
-  ],
-  "4": [  // 动漫片
-    { name: "国产动漫", value: "29" },
-    { name: "日韩动漫", value: "30" },
-    { name: "欧美动漫", value: "31" },
-    { name: "港台动漫", value: "32" },
-    { name: "海外动漫", value: "33" }
-  ],
-  "35": [],  // 电影解说
-  "36": [    // 体育
-    { name: "足球", value: "37" },
-    { name: "篮球", value: "38" },
-    { name: "网球", value: "39" },
-    { name: "斯诺克", value: "40" }
-  ]
-};
-
-const PLAY_URL_PATTERNS = [
-  (vodId) => `https://www.ryzyw.com/index.php/vod/play/id/${vodId}.html`,
-  (vodId) => `https://cj.rycjapi.com/play/${vodId}.html`
-];
-
-// ========== 缓存 ==========
-let initialized = false;
-let classes = null;
-let filters = null;
-let subClassMap = null;
-const detailCache = new Map();
-
-/**
- * 日志工具函数
- */
-const logInfo = (message, data = null) => {
-  if (data) OmniBox.log("info", `[如意资源] ${message}: ${JSON.stringify(data)}`);
-  else OmniBox.log("info", `[如意资源] ${message}`);
-};
-
-const logError = (message, error) => {
-  OmniBox.log("error", `[如意资源] ${message}: ${error.message || error}`);
-};
-
-const logWarn = (message) => {
-  OmniBox.log("warn", `[如意资源] ${message}`);
-};
-
-/**
- * 元数据编解码
- */
-const encodeMeta = (obj) => {
-  try {
-    return Buffer.from(JSON.stringify(obj || {}), "utf8").toString("base64");
-  } catch {
-    return "";
-  }
-};
-
-const decodeMeta = (str) => {
-  try {
-    const raw = Buffer.from(str || "", "base64").toString("utf8");
-    return JSON.parse(raw || "{}");
-  } catch {
-    return {};
-  }
-};
-
-/**
- * 发送HTTP请求
- */
-async function request(url, options = {}) {
-  if (url && url.startsWith('http')) {
-    try {
-      const response = await OmniBox.request(url, {
-        method: options.method || "GET",
-        headers: options.headers || ruyiConfig.headers,
-        timeout: options.timeout || ruyiConfig.timeout,
-        body: options.body
-      });
-      if (response.statusCode !== 200) throw new Error(`HTTP ${response.statusCode}`);
-      return JSON.parse(response.body);
-    } catch (error) {
-      logError(`请求失败: ${url}`, error);
-      throw error;
-    }
-  }
-  
-  let lastError = null;
-  for (let i = 0; i < ruyiConfig.apiUrls.length; i++) {
-    const apiUrl = ruyiConfig.apiUrls[i];
-    try {
-      let requestUrl = apiUrl;
-      if (options.params) {
-        const params = new URLSearchParams(options.params);
-        requestUrl = `${apiUrl}?${params.toString()}`;
-      }
-      
-      const response = await OmniBox.request(requestUrl, {
-        method: options.method || "GET",
-        headers: options.headers || ruyiConfig.headers,
-        timeout: options.timeout || ruyiConfig.timeout,
-        body: options.body
-      });
-      if (response.statusCode !== 200) throw new Error(`HTTP ${response.statusCode}`);
-      const data = JSON.parse(response.body);
-      if (i > 0) logInfo(`切换到备用API: ${apiUrl}`);
-      return data;
-    } catch (error) {
-      lastError = error;
-      logWarn(`API ${apiUrl} 请求失败: ${error.message}`);
-      continue;
-    }
-  }
-  throw lastError || new Error("所有API都请求失败");
-}
-
-/**
- * 获取完整图片 URL
- */
-const getPicUrl = (path) => {
-  if (!path) return '';
-  if (path === '<nil>' || path === 'nil' || path === 'null') return '';
-  if (path.startsWith('http://') || path.startsWith('https://')) return path;
-  if (path.startsWith('/')) return `${ruyiConfig.imgHosts[0]}${path}`;
-  return path;
-};
-
-/**
- * 格式化视频列表数据
- */
-const formatList = (data) => {
-  if (!Array.isArray(data)) return [];
-
-  return data.filter(i => i && i.vod_id && String(i.vod_id) !== '0').map(i => ({
-    vod_id: String(i.vod_id),
-    vod_name: i.vod_name || '未知标题',
-    vod_pic: '',
-    vod_remarks: i.vod_remarks || (i.vod_year ? `${i.vod_year}` : ''),
-    vod_year: i.vod_year || '',
-    type_id: String(i.type_id || '')
-  }));
-};
-
-/**
- * 批量获取视频封面
- */
-async function batchGetCovers(videoIds) {
-  if (!videoIds || videoIds.length === 0) return new Map();
-  
-  const resultMap = new Map();
-  const uncachedIds = [];
-  
-  for (const id of videoIds) {
-    if (detailCache.has(id)) {
-      resultMap.set(id, detailCache.get(id));
-    } else {
-      uncachedIds.push(id);
-    }
-  }
-  
-  if (uncachedIds.length === 0) return resultMap;
-  
-  for (let i = 0; i < uncachedIds.length; i += ruyiConfig.batchSize) {
-    const batch = uncachedIds.slice(i, i + ruyiConfig.batchSize);
-    try {
-      const res = await request('', { params: { ac: 'videolist', ids: batch.join(',') } });
-      
-      if (Array.isArray(res.list)) {
-        for (const item of res.list) {
-          if (!item || typeof item !== 'object') continue;
-          const vodId = String(item.vod_id);
-          
-          let pic = '';
-          if (item.vod_pic && item.vod_pic !== '<nil>') pic = getPicUrl(item.vod_pic);
-          else if (item.vod_img && item.vod_img !== '<nil>') pic = getPicUrl(item.vod_img);
-          else if (item.pic && item.pic !== '<nil>') pic = getPicUrl(item.pic);
-          
-          detailCache.set(vodId, pic);
-          resultMap.set(vodId, pic);
-        }
-      }
-    } catch (error) {
-      logError(`批量获取封面失败`, error);
-    }
-  }
-  
-  return resultMap;
-}
-
-/**
- * 补全视频封面
- */
-async function enrichCovers(videos) {
-  if (!Array.isArray(videos) || videos.length === 0) return videos;
-  
-  const needCoverIds = [];
-  const videoMap = new Map();
-  
-  for (const video of videos) {
-    if (!video.vod_pic || video.vod_pic === '') {
-      needCoverIds.push(video.vod_id);
-      videoMap.set(video.vod_id, video);
-    }
-  }
-  
-  if (needCoverIds.length === 0) return videos;
-  
-  const coversMap = await batchGetCovers(needCoverIds);
-  
-  for (const [vodId, pic] of coversMap) {
-    const video = videoMap.get(vodId);
-    if (video && pic) {
-      video.vod_pic = pic;
-    }
-  }
-  
-  return videos;
-}
-
-/**
- * 解析播放源
- */
-const parsePlaySources = (vodItem) => {
-  const playSources = [];
-  const vodId = vodItem.vod_id;
-  const vodName = vodItem.vod_name;
-  const playFrom = vodItem.vod_play_from || '默认线路';
-  const playUrl = vodItem.vod_play_url || '';
-  
-  if (playUrl) {
-    const episodes = playUrl.split('#').map((item, index) => {
-      const parts = item.split('$');
-      const episodeName = parts[0] || `第${index + 1}集`;
-      const directUrl = parts[1] || '';
-      const fid = `${vodId}#${index}`;
-      const playMeta = { sid: vodId, fid: fid, v: vodName, e: index + 1, url: directUrl, isDirect: true };
-      return {
-        name: episodeName,
-        playId: `${directUrl}|||${encodeMeta(playMeta)}`,
-        _fid: fid,
-        _rawName: episodeName
-      };
-    }).filter(ep => ep.playId);
-    
-    if (episodes.length > 0) {
-      const sources = playFrom.split(',');
-      for (const source of sources) {
-        playSources.push({ name: source.trim(), episodes: episodes });
-      }
-    }
-  }
-  return playSources;
-};
-
-async function getPlayPageUrlSmart(vodId) {
-  for (const pattern of PLAY_URL_PATTERNS) {
-    try {
-      const testUrl = pattern(vodId);
-      const headResponse = await OmniBox.request(testUrl, { method: 'HEAD', timeout: 3000 }).catch(() => null);
-      if (headResponse && headResponse.statusCode === 200) return testUrl;
-    } catch (e) {}
-  }
-  return `https://www.ryzyw.com/index.php/vod/play/id/${vodId}.html`;
-}
-
-/* ============================================================================
- * 辅助函数
- * ============================================================================ */
-
-function preprocessTitle(title) {
-  if (!title) return "";
-  return title.replace(/4[kK]|[xX]26[45]|720[pP]|1080[pP]|2160[pP]/g, " ")
-    .replace(/[hH]\.?26[45]/g, " ")
-    .replace(/BluRay|WEB-DL|HDR|REMUX/gi, " ")
-    .replace(/\.mp4|\.mkv|\.avi|\.flv/gi, " ");
-}
-
-function chineseToArabic(cn) {
-  const map = { '零': 0, '一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9, '十': 10 };
-  if (!isNaN(cn)) return parseInt(cn, 10);
-  if (cn.length === 1) return map[cn] || cn;
-  if (cn.length === 2) {
-    if (cn[0] === '十') return 10 + map[cn[1]];
-    if (cn[1] === '十') return map[cn[0]] * 10;
-  }
-  if (cn.length === 3) return map[cn[0]] * 10 + map[cn[2]];
-  return cn;
-}
-
-function extractEpisode(title) {
-  if (!title) return "";
-  const processedTitle = preprocessTitle(title).trim();
-  const cnMatch = processedTitle.match(/第\s*([零一二三四五六七八九十0-9]+)\s*[集话章节回期]/);
-  if (cnMatch) return String(chineseToArabic(cnMatch[1]));
-  const seMatch = processedTitle.match(/[Ss](?:\d{1,2})?[-._\s]*[Ee](\d{1,3})/i);
-  if (seMatch) return seMatch[1];
-  const epMatch = processedTitle.match(/\b(?:EP|E)[-._\s]*(\d{1,3})\b/i);
-  if (epMatch) return epMatch[1];
-  return "";
-}
-
-function buildFileNameForDanmu(vodName, episodeTitle) {
-  if (!vodName) return "";
-  if (!episodeTitle || episodeTitle === '正片' || episodeTitle === '播放') return vodName;
-  const digits = extractEpisode(episodeTitle);
-  if (digits) {
-    const epNum = parseInt(digits, 10);
-    if (epNum > 0) return epNum < 10 ? `${vodName} S01E0${epNum}` : `${vodName} S01E${epNum}`;
-  }
-  return vodName;
-}
-
-function buildScrapedEpisodeName(scrapeData, mapping, originalName) {
-  if (!mapping || mapping.episodeNumber === 0 || (mapping.confidence && mapping.confidence < 0.5)) return originalName;
-  if (mapping.episodeName) return mapping.episodeName;
-  if (scrapeData && Array.isArray(scrapeData.episodes)) {
-    const hit = scrapeData.episodes.find(ep => ep.episodeNumber === mapping.episodeNumber && ep.seasonNumber === mapping.seasonNumber);
-    if (hit?.name) return `${hit.episodeNumber}.${hit.name}`;
-  }
-  return originalName;
-}
-
-function buildScrapedDanmuFileName(scrapeData, scrapeType, mapping, fallbackVodName, fallbackEpisodeName) {
-  if (!scrapeData) return buildFileNameForDanmu(fallbackVodName, fallbackEpisodeName);
-  if (scrapeType === 'movie') return scrapeData.title || fallbackVodName;
-  const title = scrapeData.title || fallbackVodName;
-  const seasonAirYear = scrapeData.seasonAirYear || '';
-  const seasonNumber = mapping?.seasonNumber || 1;
-  const episodeNumber = mapping?.episodeNumber || 1;
-  return `${title}.${seasonAirYear}.S${String(seasonNumber).padStart(2, '0')}E${String(episodeNumber).padStart(2, '0')}`;
-}
-
-async function matchDanmu(fileName) {
-  if (!ruyiConfig.danmuApi || !fileName) return [];
-  try {
-    const matchUrl = `${ruyiConfig.danmuApi}/api/v2/match`;
-    const response = await OmniBox.request(matchUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'User-Agent': ruyiConfig.headers['User-Agent'] },
-      body: JSON.stringify({ fileName })
-    });
-    if (response.statusCode !== 200) return [];
-    const matchData = JSON.parse(response.body || '{}');
-    if (!matchData.isMatched) return [];
-    const episodeId = matchData.matches?.[0]?.episodeId;
-    if (!episodeId) return [];
-    return [{ name: '弹幕', url: `${ruyiConfig.danmuApi}/api/v2/comment/${episodeId}?format=xml` }];
-  } catch (error) {
-    return [];
-  }
-}
-
-/* ============================================================================
- * 初始化函数（使用硬编码数据，无API请求）
- * ============================================================================ */
-
-const initialize = () => {
-  if (initialized) {
-    return { classes, filters, subClassMap };
-  }
-  
-  logInfo('初始化分类数据');
-  
-  // 使用硬编码的分类数据
-  classes = HARDCODED_CLASSES;
-  subClassMap = HARDCODED_SUB_CLASS_MAP;
-  
-  // 构建筛选器
-  filters = {};
-  for (const cls of classes) {
-    const tid = cls.type_id;
-    const typeOptions = HARDCODED_TYPE_OPTIONS[tid] || [];
-    if (typeOptions.length > 0) {
-      filters[tid] = [{ name: '类型', key: 'type', init: typeOptions[0]?.value || '', value: typeOptions }];
-    }
-  }
-  
-  initialized = true;
-  logInfo(`初始化完成，获取到 ${classes.length} 个主分类`);
-  
-  return { classes, filters, subClassMap };
-};
-
-/* ============================================================================
- * 首页和分类功能
- * ============================================================================ */
-
-const getHomeContent = () => {
-  const { classes, filters } = initialize();
-  return { class: classes, filters: filters };
-};
-
-/**
- * 获取分类视频列表
- */
-const getCategoryList = async (tid, pg = 1, extend = {}) => {
-  try {
-    logInfo('获取分类列表', { tid, pg, extend });
-    
-    const { subClassMap } = initialize();
-    const subClassIds = subClassMap.get(tid) || [];
-    
-    let targetTypeId = tid;
-    
-    if (extend.type && extend.type !== '') {
-      targetTypeId = extend.type;
-    } else if (subClassIds.length > 0) {
-      targetTypeId = subClassIds[0];
-    }
-    
-    const params = { ac: 'list', t: targetTypeId, pg: pg, pagesize: 20 };
-    const res = await request('', { params });
-    
-    let list = formatList(res.list || []);
-    list = await enrichCovers(list);
-    
-    logInfo('分类列表获取成功', { count: list.length, page: pg, totalPages: res.pagecount });
-    
-    return {
-      list: list,
-      page: parseInt(pg),
-      pagecount: res.pagecount || 1,
-      limit: 20
-    };
-  } catch (e) {
-    logError('获取分类列表失败', e);
-    return { list: [], page: pg, pagecount: pg, limit: 20 };
-  }
-};
-
-const getRecommendList = async () => {
-  try {
-    const res = await request('', { params: { ac: 'list', pg: 1, pagesize: 20 } });
-    let list = formatList(res.list || []);
-    list = await enrichCovers(list);
-    logInfo('首页推荐获取成功', { count: list.length });
-    return list;
-  } catch (e) {
-    logError('获取首页推荐失败', e);
-    return [];
-  }
-};
-
-/* ============================================================================
- * 刮削相关函数
- * ============================================================================ */
-
-async function batchGetVideoDetailsForScraping(videoIds) {
-  if (!videoIds || videoIds.length === 0) return new Map();
-  
-  const resultMap = new Map();
-  const uncachedIds = [];
-  
-  for (const id of videoIds) {
-    if (detailCache.has(id)) {
-      resultMap.set(id, detailCache.get(id));
-    } else {
-      uncachedIds.push(id);
-    }
-  }
-  
-  if (uncachedIds.length === 0) return resultMap;
-  
-  for (let i = 0; i < uncachedIds.length; i += ruyiConfig.batchSize) {
-    const batch = uncachedIds.slice(i, i + ruyiConfig.batchSize);
-    try {
-      const res = await request('', { params: { ac: 'videolist', ids: batch.join(',') } });
-      
-      if (Array.isArray(res.list)) {
-        for (const item of res.list) {
-          if (!item || typeof item !== 'object') continue;
-          const vodId = String(item.vod_id);
-          
-          const detail = {
-            vod_pic: getPicUrl(item.vod_pic),
-            vod_year: item.vod_year || '',
-            vod_area: item.vod_area || '',
-            type_name: item.type_name || '',
-            type_id: String(item.type_id || ''),
-            vod_actor: item.vod_actor || '',
-            vod_director: item.vod_director || '',
-            vod_content: item.vod_content || ''
-          };
-          
-          detailCache.set(vodId, detail);
-          resultMap.set(vodId, detail);
-        }
-      }
-    } catch (error) {
-      logError(`批量获取详情失败`, error);
-    }
-  }
-  return resultMap;
-}
-
-/* ============================================================================
- * OmniBox 接口实现
- * ============================================================================ */
-
-async function home(params) {
-  try {
-    const homeData = getHomeContent();
-    const recommendList = await getRecommendList();
-    return { class: homeData.class, filters: homeData.filters, list: recommendList };
-  } catch (error) {
-    logError('获取首页数据失败', error);
-    return { class: [], filters: {}, list: [] };
-  }
-}
-
-async function category(params) {
-  try {
-    const categoryId = params.categoryId;
-    const page = params.page || 1;
-    const filters = params.filters || {};
-    
-    if (!categoryId) throw new Error("分类ID不能为空");
-    
-    const result = await getCategoryList(categoryId, page, filters);
-    
-    if (page === 1) {
-      const { filters: allFilters } = initialize();
-      result.filters = allFilters[categoryId] || [];
-    }
-    
-    return result;
-  } catch (error) {
-    logError('获取分类数据失败', error);
-    return { page: 1, pagecount: 0, list: [] };
-  }
-}
-
-async function search(params) {
-  try {
-    const keyword = params.keyword || params.wd || "";
-    const page = params.page || 1;
-    
-    if (!keyword) return { page: 1, pagecount: 0, list: [] };
-    
-    const res = await request('', { params: { ac: 'list', wd: keyword, pg: page, pagesize: 30 } });
-    let list = formatList(res.list || []);
-    
-    const searchKeyword = keyword.trim().toLowerCase();
-    list = list.filter(item => (item.vod_name || '').toLowerCase().includes(searchKeyword));
-    list = await enrichCovers(list);
-    
-    return {
-      list: list.slice(0, 20),
-      page: parseInt(page),
-      pagecount: res.pagecount || 1,
-      total: res.total || 0
-    };
-  } catch (error) {
-    logError('搜索视频失败', error);
-    return { page: 1, pagecount: 0, list: [] };
-  }
-}
-
-async function detail(params, context) {
-  try {
-    const videoId = params.videoId;
-    if (!videoId) throw new Error("视频ID不能为空");
-    
-    const res = await request('', { params: { ac: 'videolist', ids: videoId } });
-    
-    let vod = null;
-    if (res.list && res.list.length > 0) {
-      const item = res.list[0];
-      vod = {
-        vod_id: String(item.vod_id || ''),
-        vod_name: String(item.vod_name || ''),
-        vod_pic: getPicUrl(item.vod_pic),
-        type_name: String(item.type_name || ''),
-        vod_year: String(item.vod_year || ''),
-        vod_area: String(item.vod_area || ''),
-        vod_remarks: String(item.vod_remarks || ''),
-        vod_actor: String(item.vod_actor || ''),
-        vod_director: String(item.vod_director || ''),
-        vod_content: String(item.vod_content || '').trim(),
-        vod_play_sources: parsePlaySources(item)
-      };
-    }
-    
-    if (!vod) return { list: [] };
-    
-    // 刮削处理
-    const sourceCandidates = [];
-    const playSources = Array.isArray(vod.vod_play_sources) ? vod.vod_play_sources : [];
-    
-    for (const source of playSources) {
-      for (const ep of source.episodes || []) {
-        const meta = ep.playId && ep.playId.includes('|||') ? decodeMeta(ep.playId.split('|||')[1]) : {};
-        const fid = ep._fid || meta.fid;
-        const rawName = ep._rawName || ep.name || '正片';
-        if (!fid) continue;
-        sourceCandidates.push({ fid, file_id: fid, file_name: rawName, name: rawName, format_type: 'video' });
-      }
-    }
-    
-    if (sourceCandidates.length > 0 && vod.vod_name) {
-      try {
-        const sourceId = `spider_source_${context.sourceId}_${videoId}`;
-        await OmniBox.processScraping(sourceId, vod.vod_name, vod.vod_name, sourceCandidates);
-        const metadata = await OmniBox.getScrapeMetadata(sourceId);
-        const scrapeData = metadata?.scrapeData || null;
-        const videoMappings = metadata?.videoMappings || [];
-        
-        if (scrapeData) {
-          vod.vod_name = scrapeData.title || scrapeData.name || vod.vod_name;
-          if (scrapeData.poster_path) vod.vod_pic = `https://image.tmdb.org/t/p/w500${scrapeData.poster_path}`;
-          vod.vod_year = scrapeData.releaseDate ? String(scrapeData.releaseDate).substring(0, 4) : vod.vod_year;
-          vod.vod_content = scrapeData.overview || vod.vod_content;
-          
-          if (scrapeData.credits?.cast) vod.vod_actor = scrapeData.credits.cast.slice(0, 5).map(c => c.name).join(',');
-          if (scrapeData.credits?.crew) {
-            const directors = scrapeData.credits.crew.filter(c => c.job === 'Director').slice(0, 3).map(c => c.name).join(',');
-            if (directors) vod.vod_director = directors;
-          }
-          
-          for (const source of playSources) {
-            for (const ep of source.episodes || []) {
-              const meta = ep.playId && ep.playId.includes('|||') ? decodeMeta(ep.playId.split('|||')[1]) : {};
-              const fid = ep._fid || meta.fid;
-              const mapping = videoMappings.find(m => m?.fileId === fid);
-              if (!mapping) continue;
-              
-              const oldName = ep.name;
-              const newName = buildScrapedEpisodeName(scrapeData, mapping, oldName);
-              if (newName && newName !== oldName) ep.name = newName;
-              ep._seasonNumber = mapping.seasonNumber;
-              ep._episodeNumber = mapping.episodeNumber;
-            }
-            
-            const hasEpisodeNumber = (source.episodes || []).some(ep => ep._episodeNumber !== undefined);
-            if (hasEpisodeNumber) {
-              source.episodes.sort((a, b) => {
-                const seasonA = a._seasonNumber || 0;
-                const seasonB = b._seasonNumber || 0;
-                if (seasonA !== seasonB) return seasonA - seasonB;
-                return (a._episodeNumber || 0) - (b._episodeNumber || 0);
-              });
-            }
-            
-            source.episodes = source.episodes.map(ep => ({ name: ep.name, playId: ep.playId }));
-          }
-          
-          vod.vod_play_sources = playSources;
-        }
-      } catch (error) {
-        logError("刮削处理失败", error);
-      }
-    }
-    
-    return { list: [vod] };
-  } catch (error) {
-    logError('获取视频详情失败', error);
-    return { list: [] };
-  }
-}
-
-async function play(params, context) {
-  try {
-    const rawPlayId = params.playId || '';
-    const flag = params.flag || '';
-    const vodId = params.vodId || '';
-    
-    let playUrl = rawPlayId;
-    let vodName = '';
-    let episodeName = '';
-    let isDirectAddress = false;
-    
-    if (rawPlayId.includes('|||')) {
-      const [mainPlayId, metaB64] = rawPlayId.split('|||');
-      const meta = decodeMeta(metaB64 || '');
-      vodName = meta.v || '';
-      episodeName = meta.e || '';
-      isDirectAddress = meta.isDirect || false;
-      
-      if (isDirectAddress) {
-        playUrl = mainPlayId;
-      } else if (mainPlayId.startsWith('need_resolve:')) {
-        const resolveVodId = mainPlayId.split(':')[1] || meta.sid;
-        if (resolveVodId) {
-          const playPageUrl = await getPlayPageUrlSmart(resolveVodId);
-          playUrl = playPageUrl;
-        }
-      } else {
-        playUrl = mainPlayId;
-      }
-    }
-    
-    let scrapedDanmuFileName = '';
-    try {
-      const sourceVideoId = vodId || (rawPlayId.includes('|||') ? (decodeMeta(rawPlayId.split('|||')[1] || '').sid || '') : '');
-      if (sourceVideoId) {
-        const sourceId = `spider_source_${context.sourceId}_${sourceVideoId}`;
-        const metadata = await OmniBox.getScrapeMetadata(sourceId);
-        
-        if (metadata && metadata.scrapeData) {
-          const meta = rawPlayId.includes('|||') ? decodeMeta(rawPlayId.split('|||')[1] || '') : {};
-          const mapping = (metadata.videoMappings || []).find(m => m?.fileId === meta.fid);
-          
-          scrapedDanmuFileName = buildScrapedDanmuFileName(metadata.scrapeData, metadata.scrapeType || '', mapping, vodName, episodeName);
-          if (metadata.scrapeData.title) vodName = metadata.scrapeData.title;
-          if (mapping?.episodeName) episodeName = mapping.episodeName;
-        }
-      }
-    } catch (error) {}
-    
-    let resolvedUrl = playUrl;
-    let resolvedHeader = {};
-    let parse = 1;
-    
-    const isDirectPlayable = /\.(m3u8|mp4|flv|avi|mkv|ts)(?:\?|#|$)/i.test(playUrl || '');
-    
-    if (isDirectPlayable || isDirectAddress) {
-      parse = 0;
-    } else if (/^https?:\/\//i.test(playUrl || '')) {
-      try {
-        const sniffResult = await OmniBox.sniffVideo(playUrl);
-        if (sniffResult && sniffResult.url) {
-          resolvedUrl = sniffResult.url;
-          resolvedHeader = sniffResult.header || {};
-          parse = 0;
-        }
-      } catch (sniffError) {}
-    }
-    
-    const response = { urls: [{ name: '默认线路', url: resolvedUrl }], header: resolvedHeader, parse: parse };
-    
-    if (ruyiConfig.danmuApi) {
-      let fileName = '';
-      if (vodName) fileName = scrapedDanmuFileName || buildFileNameForDanmu(vodName, episodeName);
-      if (fileName) {
-        const danmakuList = await matchDanmu(fileName);
-        if (danmakuList && danmakuList.length > 0) response.danmaku = danmakuList;
-      }
-    }
-    
-    return response;
-  } catch (error) {
-    logError('获取播放地址失败', error);
-    return { urls: [], parse: 0, header: {} };
-  }
-}
-
-module.exports = { home, category, search, detail, play };
-
-const runner = require("spider_runner");
-runner.run(module.exports);
-
-});
-
-_load(3, "小黑米", function (module, exports, require) {
-// @name 小黑米
-// @author 梦
-// @description 影视站：https://xiaoheimi.cc/ ，支持首页、分类、详情、搜索与播放（直链提取）
+_load(2, "HDmoli", function (module, exports, require) {
+// @name HDmoli
+// @version 1.0.8
+// @downloadURL https://gh-proxy.org/https://github.com/Silent1566/OmniBox-Spider/raw/refs/heads/main/影视/采集/HDmoli.js
 // @dependencies cheerio
-// @version 1.0.2
-// @downloadURL https://gh-proxy.org/https://github.com/Silent1566/OmniBox-Spider/raw/refs/heads/main/影视/采集/小黑米.js
 
 const OmniBox = require("omnibox_sdk");
 const runner = require("spider_runner");
 const cheerio = require("cheerio");
 
-const BASE_URL = (process.env.XIAOHEIMI_HOST || "https://xiaoheimi.cc").replace(/\/$/, "");
-const UA = process.env.XIAOHEIMI_UA || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36";
-const HOME_CACHE_TTL = Number(process.env.XIAOHEIMI_HOME_CACHE_TTL || 900);
-const CATEGORY_CACHE_TTL = Number(process.env.XIAOHEIMI_CATEGORY_CACHE_TTL || 900);
-const DETAIL_CACHE_TTL = Number(process.env.XIAOHEIMI_DETAIL_CACHE_TTL || 1800);
-const SEARCH_CACHE_TTL = Number(process.env.XIAOHEIMI_SEARCH_CACHE_TTL || 600);
-const PLAY_CACHE_TTL = Number(process.env.XIAOHEIMI_PLAY_CACHE_TTL || 1800);
+const BASE_URL = (process.env.HDMOLI_HOST || "https://www.hdmoli.me").replace(/\/$/, "");
+const USER_AGENT = process.env.HDMOLI_UA || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36";
+const REQUEST_TIMEOUT = Number(process.env.HDMOLI_TIMEOUT || 20000);
 
 const CLASS_LIST = [
-  { type_id: "7", type_name: "电影" },
-  { type_id: "6", type_name: "电视剧" },
-  { type_id: "5", type_name: "动漫" },
-  { type_id: "3", type_name: "综艺" },
-  { type_id: "21", type_name: "纪录片" },
-  { type_id: "64", type_name: "短剧" },
+  { type_id: "1", type_name: "电影", url: "/show/1-----------.html" },
+  { type_id: "2", type_name: "剧集", url: "/show/2-----------.html" },
+  { type_id: "4", type_name: "动画", url: "/show/4-----------.html" },
+  { type_id: "3", type_name: "综艺", url: "/show/3-----------.html" },
+  { type_id: "5", type_name: "纪录片", url: "/show/5-----------.html" },
+  { type_id: "6", type_name: "动作", url: "/show/6-----------.html" },
+  { type_id: "7", type_name: "喜剧", url: "/show/7-----------.html" },
+  { type_id: "8", type_name: "爱情", url: "/show/8-----------.html" },
+  { type_id: "9", type_name: "科幻", url: "/show/9-----------.html" },
+  { type_id: "10", type_name: "剧情", url: "/show/10-----------.html" },
+  { type_id: "11", type_name: "悬疑", url: "/show/11-----------.html" },
+  { type_id: "12", type_name: "惊悚", url: "/show/12-----------.html" },
 ];
-
-const FILTERS = Object.fromEntries(
-  CLASS_LIST.map((item) => [
-    item.type_id,
-    [
-      {
-        key: "type",
-        name: "分类",
-        value: [{ name: "全部", value: item.type_id }],
-      },
-      {
-        key: "by",
-        name: "排序",
-        value: [
-          { name: "最新", value: "time" },
-          { name: "人气", value: "hits" },
-          { name: "评分", value: "score" },
-        ],
-      },
-    ],
-  ])
-);
 
 module.exports = { home, category, detail, search, play };
 runner.run(module.exports);
 
-function absUrl(url) {
-  const raw = String(url || "").trim();
-  if (!raw) return "";
-  if (/^https?:\/\//i.test(raw)) return raw;
-  if (raw.startsWith("//")) return `https:${raw}`;
-  try {
-    return new URL(raw, `${BASE_URL}/`).toString();
-  } catch (_) {
-    return raw;
-  }
-}
+async function request(url, extra = {}, redirectCount = 0) {
+  const finalUrl = url.startsWith("http") ? url : `${BASE_URL}${url}`;
+  const headers = {
+    "User-Agent": USER_AGENT,
+    Referer: BASE_URL + "/",
+    ...extra.headers,
+  };
 
-function cleanText(value) {
-  return String(value || "")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&#160;/gi, " ")
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\r/g, "")
-    .replace(/[ \t\f\v]+/g, " ")
-    .replace(/\n\s*\n+/g, "\n")
-    .trim();
-}
-
-function uniqueBy(list, keyFn) {
-  const out = [];
-  const seen = new Set();
-  for (const item of Array.isArray(list) ? list : []) {
-    const key = keyFn(item);
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    out.push(item);
-  }
-  return out;
-}
-
-function pickAttr(node, names) {
-  for (const name of names) {
-    const value = node.attr(name);
-    if (value) return value;
-  }
-  return "";
-}
-
-async function requestText(url, options = {}) {
-  const method = options.method || "GET";
-  await OmniBox.log("info", `[小黑米][request] ${method} ${url}`);
-  const res = await OmniBox.request(url, {
-    method,
-    headers: {
-      "User-Agent": UA,
-      "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-      Referer: options.referer || `${BASE_URL}/`,
-      ...(options.headers || {}),
-    },
-    body: options.body,
-    timeout: options.timeout || 20000,
+  await OmniBox.log("info", `[request] ${finalUrl}`);
+  const res = await OmniBox.request(finalUrl, {
+    method: extra.method || "GET",
+    headers,
+    timeout: REQUEST_TIMEOUT,
   });
-  const statusCode = Number(res?.statusCode || 0);
-  const body = typeof res?.body === "string" ? res.body : String(res?.body || "");
-  if (statusCode !== 200) {
-    throw new Error(`HTTP ${statusCode || "unknown"} @ ${url}`);
+
+  const statusCode = Number(res.statusCode || 0);
+  const responseHeaders = res.headers || {};
+  const location = responseHeaders.location || responseHeaders.Location || responseHeaders["LOCATION"] || "";
+  if ([301, 302, 303, 307, 308].includes(statusCode)) {
+    if (redirectCount >= 5) throw new Error(`重定向次数过多 @ ${finalUrl}`);
+    if (!location) throw new Error(`HTTP ${statusCode} 未返回 Location @ ${finalUrl}`);
+    const nextUrl = absoluteUrl(location, finalUrl);
+    await OmniBox.log("info", `[redirect] ${finalUrl} -> ${nextUrl}`);
+    return request(nextUrl, extra, redirectCount + 1);
   }
-  return body;
+
+  if (statusCode !== 200) throw new Error(`HTTP ${statusCode} @ ${finalUrl}`);
+
+  return res.body || "";
 }
 
-async function getCachedText(cacheKey, ttl, producer) {
-  try {
-    const cached = await OmniBox.getCache(cacheKey);
-    if (cached) return String(cached);
-  } catch (_) {}
-  const text = String(await producer());
-  try {
-    await OmniBox.setCache(cacheKey, text, ttl);
-  } catch (_) {}
-  return text;
+function getClassById(categoryId) {
+  return CLASS_LIST.find(item => item.type_id === String(categoryId));
 }
 
-function buildCard($, li) {
-  const node = $(li);
-  const anchor = node.find("a[href*='/vod/detail/id/']").first();
-  const href = anchor.attr("href") || "";
-  const title = cleanText(anchor.attr("title") || node.find(".title,.text-333,.myui-vodlist__title").first().text() || anchor.text());
-  const img = node.find("img").first();
-  const pic = pickAttr(anchor, ["data-original", "data-src", "src"]) || pickAttr(img, ["data-original", "data-src", "src"]);
-  const remarks = cleanText(node.find(".pic-text,.text-right,.fed-list-remarks,.myui-vodlist__thumb .tag,.myui-vodlist__text,.module-item-note").first().text());
+function buildPageUrl(basePath, page = 1) {
+  if (!basePath) return "/";
+  if (page <= 1) return basePath;
+  return basePath.replace(/-{11}\.html$/, `--------${page}---.html`);
+}
+
+function normalizeText(text) {
+  return String(text || "").replace(/\s+/g, " ").trim();
+}
+
+function absoluteUrl(url, currentUrl = BASE_URL) {
+  if (!url) return "";
+  const value = String(url).trim();
+  if (/^https?:\/\//i.test(value)) return value;
+  if (value.startsWith("//")) return `https:${value}`;
+  try {
+    return new URL(value, currentUrl).toString();
+  } catch {
+    return `${BASE_URL}${value.startsWith("/") ? "" : "/"}${value}`;
+  }
+}
+
+function extractIdFromPath(path) {
+  const match = String(path || "").match(/\/([a-z]+)\/index(\d+)\.html/i);
+  if (!match) return "";
+  return `${match[1]}:${match[2]}`;
+}
+
+function splitVideoId(videoId) {
+  const [prefix, id] = String(videoId || "").split(":");
+  return { prefix: prefix || "movie", id: id || "" };
+}
+
+function buildDetailUrlFromPlay(playUrl) {
+  const match = String(playUrl || "").match(/\/play\/(\d+)-(\d+)-(\d+)\.html/i);
+  if (!match) return BASE_URL + "/";
+  return `${BASE_URL}/movie/index${match[1]}.html`;
+}
+
+function mapListItem($, el) {
+  const box = $(el);
+  const linkEl = box.find("a.myui-vodlist__thumb").first();
+  const titleEl = box.find("h4.title a").first();
+  const href = linkEl.attr("href") || titleEl.attr("href") || "";
+  const pic = linkEl.attr("data-original") || linkEl.find("img").attr("data-original") || linkEl.attr("src") || linkEl.find("img").attr("src") || "";
+  const remarks = normalizeText(linkEl.find(".pic-text").first().text() || box.find(".pic-text").first().text());
+  const score = normalizeText(linkEl.find(".pic-tag-right").first().text());
+  const meta = normalizeText(box.find("p.text").first().text());
+  const looksLikeMetadata = /^[0-9]{4}\s*\//.test(meta);
+  let parts = looksLikeMetadata ? meta.split("/").map(s => normalizeText(s)).filter(Boolean) : [];
+
+  if (!parts.length) {
+    const info = normalizeText(box.find("p").filter((_, p) => $(p).text().includes("分类：")).first().text());
+    const typeMatch = info.match(/分类：([^地]*?)地区：/);
+    const areaMatch = info.match(/地区：([^年]*?)年份：/);
+    const yearMatch = info.match(/年份：([0-9]{4})/);
+    parts = [
+      yearMatch ? yearMatch[1] : "",
+      areaMatch ? areaMatch[1].trim() : "",
+      typeMatch ? typeMatch[1].trim() : "",
+    ].filter(Boolean);
+  }
+
   return {
-    vod_id: absUrl(href),
-    vod_name: title,
-    vod_pic: absUrl(pic),
-    vod_remarks: remarks,
+    vod_id: extractIdFromPath(href),
+    vod_name: normalizeText(titleEl.text() || linkEl.attr("title")),
+    vod_pic: absoluteUrl(pic),
+    vod_remarks: remarks || score,
+    vod_year: parts[0] || "",
+    vod_area: parts[1] || "",
+    type_name: parts.slice(2).join("/") || "",
+    vod_douban_score: score.replace(/分$/, ""),
   };
 }
 
-function parseListFromHtml(html, options = {}) {
-  const $ = cheerio.load(html);
+function parseListPage(html) {
+  const $ = cheerio.load(html, { decodeEntities: false });
   const list = [];
-  const seenHref = new Set();
-  const container = options.containerSelector ? $(options.containerSelector).first() : $.root();
-  container.find("a[href*='/vod/detail/id/']").each((_, el) => {
-    const href = $(el).attr("href") || "";
-    if (!href || seenHref.has(href)) return;
-    seenHref.add(href);
-    const cardNode = $(el).closest("li, .myui-vodlist__box, .myui-vodlist__item, .module-item, .public-list-box");
-    const card = buildCard($, cardNode.length ? cardNode : el);
-    if (card.vod_id && card.vod_name) list.push(card);
-  });
-  return uniqueBy(list, (item) => item.vod_id);
-}
-
-function parsePageCount($) {
-  let pagecount = 1;
-  $("a[href]").each((_, el) => {
-    const href = $(el).attr("href") || "";
-    const matches = [...href.matchAll(/\/page\/(\d+)\.html/g)];
-    for (const match of matches) {
-      const num = Number(match[1] || 1);
-      if (Number.isFinite(num)) pagecount = Math.max(pagecount, num);
+  // 针对该站点的 col- 布局和 myui-vodlist 混合结构进行匹配
+  $("ul.myui-vodlist li, ul.myui-vodlist__bd li, #searchList li, li[class*='col-'], li.clearfix").each((_, el) => {
+    const box = $(el);
+    // 必须包含链接和标题，且不是广告或菜单项
+    if (box.find("a[href*='/movie/index']").length > 0 || box.find("a[href*='/juji/index']").length > 0) {
+        const item = mapListItem($, el);
+        if (item.vod_id && item.vod_name) list.push(item);
     }
   });
-  return pagecount;
+  // 去重
+  const seen = new Set();
+  return list.filter(item => {
+    if (seen.has(item.vod_id)) return false;
+    seen.add(item.vod_id);
+    return true;
+  });
 }
 
-function parseInfoList($) {
-  const info = {};
-  $("li.data, li").each((_, el) => {
-    const text = cleanText($(el).text());
-    if (!text) return;
-    if (text.startsWith("地区：")) info.area = text.replace(/^地区：/, "").trim();
-    if (text.startsWith("年份：")) info.year = text.replace(/^年份：/, "").trim();
-    if (text.startsWith("主演：")) info.actor = text.replace(/^主演：/, "").trim();
-    if (text.startsWith("导演：")) info.director = text.replace(/^导演：/, "").trim();
-    if (text.startsWith("类型：")) info.type_name = text.replace(/^类型：/, "").trim();
-    if (text.startsWith("更新：")) info.remarks = text.replace(/^更新：/, "").trim();
-  });
-  return info;
-}
-
-function dedupeEpisodes(episodes) {
-  return uniqueBy(
-    (Array.isArray(episodes) ? episodes : []).map((ep) => ({
-      ...ep,
-      name: cleanText(ep?.name || ""),
-      playId: String(ep?.playId || "").trim(),
-    })),
-    (item) => `${item.name}|${item.playId}`
-  ).filter((item) => item.name && item.playId);
-}
-
-function parseDetailSources($, detailUrl) {
-  const sourceNames = {};
-  $("a[data-toggle='tab'][href^='#playlist']").each((_, el) => {
-    const target = ($(el).attr("href") || "").replace(/^#/, "");
-    const name = cleanText($(el).text());
-    if (target) sourceNames[target] = name || target;
-  });
-
-  const sources = [];
-  $("div[id^='playlist']").each((_, box) => {
-    const node = $(box);
-    const playlistId = node.attr("id") || "";
-    const sourceName = sourceNames[playlistId] || `线路${sources.length + 1}`;
-    const episodes = [];
-    node.find("a[href*='/vod/play/id/']").each((__, a) => {
-      const href = $(a).attr("href") || "";
-      const name = cleanText($(a).attr("title") || $(a).text());
-      if (!href || !name) return;
-      episodes.push({ name, playId: absUrl(href) });
-    });
-    const deduped = dedupeEpisodes(episodes);
-    if (deduped.length) sources.push({ name: sourceName, episodes: deduped });
-  });
-
-  if (!sources.length && detailUrl) {
-    sources.push({ name: "在线播放", episodes: [{ name: "立即播放", playId: String(detailUrl) }] });
+function parsePageCount(html) {
+  const nums = new Set();
+  const regex = /--------(\d+)---\.html/g;
+  let match;
+  while ((match = regex.exec(html))) {
+    nums.add(Number(match[1]));
   }
-  return sources;
+  const maxPage = Math.max(1, ...nums);
+  return Number.isFinite(maxPage) ? maxPage : 1;
 }
 
-function parseDetail(html, detailUrl) {
-  const $ = cheerio.load(html);
-  const title = cleanText($("h1").first().text() || $("title").text().replace(/\s*-\s*小宝影院.*$/, ""));
-  const poster = $(".myui-content__thumb img, .detail-pic img, .vod-detail-pic img, img.lazyload").first();
-  const pic = absUrl(pickAttr(poster, ["data-original", "data-src", "src"]));
-  const info = parseInfoList($);
-  const desc = cleanText($(".desc,.data-more,.content,.vod_content,.tab-pane.active .content").first().html() || $("meta[name='description']").attr("content") || "");
-  const vod_play_sources = parseDetailSources($, detailUrl);
-  return {
-    vod_id: detailUrl,
-    vod_name: title,
-    vod_pic: pic,
-    vod_remarks: info.remarks || "",
-    vod_year: info.year || "",
-    vod_area: info.area || "",
-    vod_actor: info.actor || "",
-    vod_director: info.director || "",
-    type_name: info.type_name || "",
-    vod_content: desc,
-    vod_play_sources,
-  };
-}
-
-function extractPlayerData(html) {
-  const match = html.match(/player_aaaa\s*=\s*(\{.*?\})\s*<\/script>/s) || html.match(/player_aaaa=(\{.*?\});/s);
-  if (!match) throw new Error("未找到 player_aaaa 数据");
-  const raw = match[1].replace(/\\\//g, "/");
-  return JSON.parse(raw);
-}
-
-function decodePlayerUrl(url, encrypt) {
-  const raw = String(url || "").trim();
-  const mode = Number(encrypt || 0);
-  if (!raw) return "";
+function decodeHexString(input) {
+  const hex = String(input || "").replace(/[^0-9a-f]/gi, "");
+  if (!hex || hex.length % 2 !== 0) return "";
   try {
-    if (mode === 1) return unescape(raw);
-    if (mode === 2) return unescape(Buffer.from(raw, "base64").toString("utf8"));
-  } catch (_) {}
-  return raw;
+    return Buffer.from(hex, "hex").toString("utf8");
+  } catch {
+    return "";
+  }
+}
+
+function decodePlayerUrl(rawUrl, encrypt) {
+  let value = String(rawUrl || "").trim();
+  if (!value) return "";
+
+  if (encrypt === 1) {
+    try { value = unescape(value); } catch {}
+    try { value = decodeURIComponent(value); } catch {}
+    return value;
+  }
+
+  if (encrypt === 2) {
+    try {
+      value = Buffer.from(value, "base64").toString("utf8");
+    } catch {}
+    try { value = unescape(value); } catch {}
+    try { value = decodeURIComponent(value); } catch {}
+    return value;
+  }
+
+  if (encrypt === 3) {
+    const hexDecoded = decodeHexString(value);
+    if (hexDecoded) value = hexDecoded;
+    try { value = unescape(value); } catch {}
+    try { value = decodeURIComponent(value); } catch {}
+    return value;
+  }
+
+  return value;
+}
+
+function parsePlaySources($) {
+  const tabs = [];
+  $(".nav-tabs li a[href^='#playlist']").each((index, el) => {
+    const tab = $(el);
+    tabs.push({
+      target: tab.attr("href") || `#playlist${index + 1}`,
+      name: normalizeText(tab.text()) || `线路${index + 1}`,
+    });
+  });
+
+  if (!tabs.length) {
+    $("div[id^='playlist']").each((index, el) => {
+      tabs.push({ target: `#${$(el).attr("id")}`, name: `线路${index + 1}` });
+    });
+  }
+
+  return tabs.map(tab => {
+    const episodes = [];
+    $(tab.target).find(".myui-content__list a").each((_, a) => {
+      const node = $(a);
+      const href = node.attr("href") || "";
+      const name = normalizeText(node.text()) || "播放";
+      if (!href) return;
+      episodes.push({
+        name,
+        playId: JSON.stringify({
+          source: tab.name,
+          playUrl: absoluteUrl(href),
+          referer: buildDetailUrlFromPlay(absoluteUrl(href)),
+        }),
+      });
+    });
+    return { name: tab.name, episodes };
+  }).filter(item => item.episodes.length > 0);
+}
+
+function parseDownloadLinks($) {
+  const links = [];
+  $(".myui-panel_bd p.text-muted a[title]").each((_, el) => {
+    const node = $(el);
+    const href = node.attr("href") || "";
+    const title = normalizeText(node.closest("p").find("b").text()).replace(/[:：]/g, "") || normalizeText(node.attr("title"));
+    if (/pan\.quark\.cn|pan\.baidu\.com|drive\.uc\.cn/i.test(href)) {
+      links.push({ name: title || "网盘", url: href });
+    }
+  });
+  return links;
+}
+
+function filterOutDriveSources(playSources = []) {
+  const driveKeywordRegex = /(夸克|百度|阿里|UC|网盘|迅雷盘|115|123云盘|天翼)/i;
+  return playSources.filter(source => {
+    const sourceName = String(source?.name || "");
+    if (driveKeywordRegex.test(sourceName)) return false;
+    const episodes = Array.isArray(source?.episodes) ? source.episodes : [];
+    const hasDriveEpisode = episodes.some(ep => {
+      const rawPlayId = String(ep?.playId || "");
+      return /pan\.quark\.cn|pan\.baidu\.com|drive\.uc\.cn/i.test(rawPlayId);
+    });
+    return !hasDriveEpisode;
+  });
 }
 
 async function home(params, context) {
   try {
-    await OmniBox.log("info", `[小黑米][home] from=${context?.from || "web"}`);
-    const html = await getCachedText(`xiaoheimi:home`, HOME_CACHE_TTL, () => requestText(`${BASE_URL}/`));
-    const list = parseListFromHtml(html).slice(0, 60);
-    await OmniBox.log("info", `[小黑米][home] 推荐数量=${list.length}`);
-    return { class: CLASS_LIST, filters: FILTERS, list };
+    await OmniBox.log("info", `[home] from=${context?.from || "web"}`);
+    const html = await request("/");
+    const list = parseListPage(html).slice(0, 24);
+    await OmniBox.log("info", `[home] list=${list.length}`);
+    return { class: CLASS_LIST.map(({ type_id, type_name }) => ({ type_id, type_name })), list };
   } catch (error) {
-    await OmniBox.log("error", `[小黑米][home] 失败: ${error.message || error}`);
-    return { class: CLASS_LIST, filters: FILTERS, list: [] };
+    await OmniBox.log("error", `[home] ${error.message}`);
+    return { class: CLASS_LIST.map(({ type_id, type_name }) => ({ type_id, type_name })), list: [] };
   }
 }
 
 async function category(params, context) {
   try {
-    const categoryId = String(params?.categoryId || "7");
-    const page = Math.max(1, Number(params?.page || 1));
-    const by = String(params?.filters?.by || "time").trim() || "time";
-    const url = page > 1
-      ? `${BASE_URL}/index.php/vod/show/by/${encodeURIComponent(by)}/id/${encodeURIComponent(categoryId)}/page/${page}.html`
-      : `${BASE_URL}/index.php/vod/show/by/${encodeURIComponent(by)}/id/${encodeURIComponent(categoryId)}.html`;
-    await OmniBox.log("info", `[小黑米][category] categoryId=${categoryId}, page=${page}, by=${by}`);
-    const html = await getCachedText(`xiaoheimi:category:${categoryId}:${page}:${by}`, CATEGORY_CACHE_TTL, () => requestText(url));
-    const $ = cheerio.load(html);
-    const list = parseListFromHtml(html);
-    const pagecount = parsePageCount($);
-    await OmniBox.log("info", `[小黑米][category] 数量=${list.length}, pagecount=${pagecount}`);
+    const categoryId = String(params?.categoryId || "1");
+    const page = Number(params?.page || 1) || 1;
+    const category = getClassById(categoryId);
+    if (!category) return { page, pagecount: 0, total: 0, list: [] };
+
+    const url = buildPageUrl(category.url, page);
+    await OmniBox.log("info", `[category] categoryId=${categoryId} page=${page} url=${url}`);
+    const html = await request(url);
+    const list = parseListPage(html);
+    const pagecount = Math.max(page, parsePageCount(html));
+    await OmniBox.log("info", `[category] list=${list.length} pagecount=${pagecount}`);
     return {
       page,
       pagecount,
-      total: pagecount > 1 ? pagecount * Math.max(list.length, 24) : list.length,
+      total: pagecount * Math.max(list.length, 24),
       list,
     };
   } catch (error) {
-    await OmniBox.log("error", `[小黑米][category] 失败: ${error.message || error}`);
-    return { page: 1, pagecount: 0, total: 0, list: [] };
+    await OmniBox.log("error", `[category] ${error.message}`);
+    return { page: Number(params?.page || 1) || 1, pagecount: 0, total: 0, list: [] };
   }
 }
 
 async function detail(params, context) {
   try {
-    const videoId = String(params?.videoId || "").trim();
-    if (!videoId) return { list: [] };
-    await OmniBox.log("info", `[小黑米][detail] videoId=${videoId}`);
-    const html = await getCachedText(`xiaoheimi:detail:${videoId}`, DETAIL_CACHE_TTL, () => requestText(videoId));
-    const vod = parseDetail(html, videoId);
-    await OmniBox.log("info", `[小黑米][detail] 线路数=${Array.isArray(vod.vod_play_sources) ? vod.vod_play_sources.length : 0}`);
-    return { list: [vod] };
+    const { prefix, id } = splitVideoId(params?.videoId);
+    if (!id) return { list: [] };
+
+    const detailUrl = `/${prefix}/index${id}.html`;
+    await OmniBox.log("info", `[detail] videoId=${params?.videoId} url=${detailUrl}`);
+    const html = await request(detailUrl);
+    const $ = cheerio.load(html, { decodeEntities: false });
+
+    const title = normalizeText($(".myui-content__detail h1.title").clone().children().remove().end().text() || $("title").text().replace(/\s*-\s*HDmoli.*$/, ""));
+    const remarks = normalizeText($(".myui-content__detail h1.title font").text());
+    const pic = absoluteUrl($(".myui-content__thumb img").attr("data-original") || $(".myui-content__thumb img").attr("src"));
+    const score = normalizeText($("#rating .branch").text()).replace(/分$/, "");
+    const content = normalizeText($(".myui-panel p.text-muted").first().text().replace(/^剧情简介：/, ""));
+
+    let vodArea = "";
+    let vodYear = "";
+    let vodActor = "";
+    let vodDirector = "";
+    let typeName = "";
+
+    $(".myui-content__detail p.data").each((_, el) => {
+      const text = normalizeText($(el).text());
+      if (text.startsWith("分类：")) typeName = text.replace(/^分类：/, "").split("地区：")[0].trim();
+      if (text.includes("地区：")) {
+        const m = text.match(/地区：([^\s]+)/);
+        if (m) vodArea = m[1].trim();
+      }
+      if (text.includes("年份：")) {
+        const m = text.match(/年份：([^\s]+)/);
+        if (m) vodYear = m[1].trim();
+      }
+      if (text.startsWith("演员：")) vodActor = text.replace(/^演员：/, "").trim();
+      if (text.startsWith("导演：")) vodDirector = text.replace(/^导演：/, "").trim();
+    });
+
+    let vod_play_sources = parsePlaySources($);
+    const downloadLinks = parseDownloadLinks($);
+
+    if (downloadLinks.length) {
+      await OmniBox.log("info", `[detail] hide drive links=${downloadLinks.length}`);
+    }
+
+    vod_play_sources = filterOutDriveSources(vod_play_sources);
+
+    await OmniBox.log("info", `[detail] sources=${vod_play_sources.length}`);
+    return {
+      list: [{
+        vod_id: `${prefix}:${id}`,
+        vod_name: title,
+        vod_pic: pic,
+        vod_content: content,
+        vod_actor: vodActor,
+        vod_director: vodDirector,
+        vod_area: vodArea,
+        vod_year: vodYear,
+        vod_remarks: remarks,
+        vod_douban_score: score,
+        type_name: typeName,
+        vod_play_sources,
+      }],
+    };
   } catch (error) {
-    await OmniBox.log("error", `[小黑米][detail] 失败: ${error.message || error}`);
+    await OmniBox.log("error", `[detail] ${error.message}`);
     return { list: [] };
   }
 }
@@ -2334,3926 +1558,1061 @@ async function detail(params, context) {
 async function search(params, context) {
   try {
     const keyword = String(params?.keyword || params?.wd || "").trim();
-    const page = Math.max(1, Number(params?.page || 1));
+    const page = Number(params?.page || 1) || 1;
     if (!keyword) return { page: 1, pagecount: 0, total: 0, list: [] };
-    const url = page > 1
-      ? `${BASE_URL}/index.php/vod/search/page/${page}/wd/${encodeURIComponent(keyword)}.html`
-      : `${BASE_URL}/index.php/vod/search.html?wd=${encodeURIComponent(keyword)}`;
-    await OmniBox.log("info", `[小黑米][search] keyword=${keyword}, page=${page}`);
-    const html = await getCachedText(`xiaoheimi:search:${keyword}:${page}`, SEARCH_CACHE_TTL, () => requestText(url));
-    const $ = cheerio.load(html);
-    const list = parseListFromHtml(html, { containerSelector: "#searchList" });
-    const pagecount = parsePageCount($);
-    await OmniBox.log("info", `[小黑米][search] 数量=${list.length}, pagecount=${pagecount}`);
+
+    let url = `/search/-------------.html?wd=${encodeURIComponent(keyword)}`;
+    if (page > 1) {
+      url = `/search/----------${page}---.html?wd=${encodeURIComponent(keyword)}`;
+    }
+    await OmniBox.log("info", `[search] keyword=${keyword} page=${page} url=${url}`);
+    const html = await request(url);
+    const list = parseListPage(html);
+    const pagecount = Math.max(page, parsePageCount(html));
+    await OmniBox.log("info", `[search] list=${list.length} pagecount=${pagecount}`);
     return {
       page,
       pagecount,
-      total: pagecount > 1 ? pagecount * Math.max(list.length, 20) : list.length,
+      total: pagecount * Math.max(list.length, 20),
       list,
     };
   } catch (error) {
-    await OmniBox.log("error", `[小黑米][search] 失败: ${error.message || error}`);
-    return { page: 1, pagecount: 0, total: 0, list: [] };
+    await OmniBox.log("error", `[search] ${error.message}`);
+    return { page: Number(params?.page || 1) || 1, pagecount: 0, total: 0, list: [] };
   }
 }
 
 async function play(params, context) {
   try {
-    const playId = String(params?.playId || "").trim();
-    const flag = String(params?.flag || "play").trim() || "play";
-    if (!playId) throw new Error("playId 不能为空");
-    await OmniBox.log("info", `[小黑米][play] playId=${playId}, flag=${flag}`);
-    const html = await getCachedText(`xiaoheimi:play:${playId}`, PLAY_CACHE_TTL, () => requestText(playId, { referer: playId }));
-    const player = extractPlayerData(html);
-    const realUrl = decodePlayerUrl(player?.url, player?.encrypt);
-    if (!realUrl) throw new Error("未提取到播放地址");
-    await OmniBox.log("info", `[小黑米][play] from=${player?.from || "unknown"}, encrypt=${player?.encrypt || 0}`);
-    return {
-      urls: [{ name: "播放", url: realUrl }],
-      header: {
-        Referer: `${BASE_URL}/`,
-        "User-Agent": UA
-      },
-      parse: /\.(m3u8|mp4)(\?|$)/i.test(realUrl) ? 0 : 1};
-  } catch (error) {
-    await OmniBox.log("error", `[小黑米][play] 失败: ${error.message || error}`);
-    return { urls: [], header: {}, parse: 1 };
-  }
-}
+    const raw = String(params?.playId || "");
+    if (!raw) throw new Error("playId 不能为空");
 
-});
-
-_load(4, "影猫仓库", function (module, exports, require) {
-// @name 影猫仓库
-// @author 
-// @description 刮削：支持，弹幕：支持，嗅探：支持，并发：安全
-// @description 03 + 开心 + 真狼 (并发解析)
-// @dependencies: axios, crypto, cheerio, http, https
-// @version 1.0.0
-// @downloadURL https://gh-proxy.org/https://github.com/Silent1566/OmniBox-Spider/raw/refs/heads/main/影视/采集/影猫仓库.js
-
-const axios = require("axios");
-const cheerio = require("cheerio");
-const OmniBox = require("omnibox_sdk");
-const crypto = require("crypto");
-const http = require("http");
-const https = require("https");
-
-// ==================== 全局配置 ====================
-const HOST = "https://www.ymck.pro";
-const PAGE_LIMIT = 20;
-const DANMU_API = process.env.DANMU_API || "";
-
-const DEFAULT_HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36",
-  "Referer": `${HOST}/`,
-};
-
-const axiosInstance = axios.create({ 
-    timeout: 15000,
-    httpAgent: new http.Agent({ keepAlive: true }),
-    httpsAgent: new https.Agent({ keepAlive: true, rejectUnauthorized: false })
-});
-
-// ==================== 日志工具 ====================
-const logInfo = (message, data = null) => {
-  OmniBox.log("info", `[影猫] ${message}${data ? ': ' + JSON.stringify(data) : ''}`);
-};
-const logWarn = (message, error = null) => {
-  OmniBox.log("warn", `[影猫] ⚠️ ${message}${error ? ': ' + (error.message || error) : ''}`);
-};
-const logError = (message, error) => {
-  OmniBox.log("error", `[影猫] ❌ ${message}: ${error?.message || error}`);
-};
-
-// ==================== 辅助工具函数 ====================
-function d64(text) {
-  try { return Buffer.from(String(text || ""), "base64").toString("utf8"); } catch { return ""; }
-}
-
-const encodeMeta = (obj) => {
-  try { return Buffer.from(JSON.stringify(obj || {}), "utf8").toString("base64"); } catch { return ""; }
-};
-const decodeMeta = (str) => {
-  try { return JSON.parse(Buffer.from(str || "", "base64").toString("utf8")); } catch { return {}; }
-};
-
-function safeDecode(str) {
-  try { return decodeURIComponent(str); } catch (e) { return unescape(str); }
-}
-
-function toAbsUrl(url, base = HOST) {
-  if (!url) return "";
-  if (url.startsWith("http")) return url;
-  if (url.startsWith("//")) return "https:" + url;
-  return `${base}${url.startsWith("/") ? "" : "/"}${url}`;
-}
-
-async function fetchWithCookieRedirect(url, customHeaders = {}, timeoutMs = 4000) {
-  let headers = { "User-Agent": DEFAULT_HEADERS["User-Agent"], ...customHeaders };
-  
-  let res = await axiosInstance.get(url, {
-    headers: headers,
-    timeout: timeoutMs,
-    maxRedirects: 0,
-    validateStatus: status => status >= 200 && status < 400
-  });
-
-  if (res.status === 301 || res.status === 302) {
-    const cookies = res.headers['set-cookie'];
-    const location = res.headers['location'];
-    
-    let baseUrl = url;
-    try { baseUrl = new URL(url).origin; } catch (e) {}
-    const nextUrl = location ? toAbsUrl(location, baseUrl) : url;
-    
-    if (cookies) {
-      headers["Cookie"] = cookies.map(c => c.split(';')[0]).join('; ');
-    }
-    res = await axiosInstance.get(nextUrl, { headers: headers, timeout: timeoutMs, maxRedirects: 0 });
-  }
-  return res;
-}
-
-// ==================== 刮削与弹幕辅助模块 ====================
-const RE_CLEAN_1 = /4[kK]|[xX]26[45]|720[pP]|1080[pP]|2160[pP]|1280x720|1920x1080/g;
-const RE_CLEAN_2 = /[hH]\.?26[45]/g;
-const RE_CLEAN_3 = /BluRay|WEB-DL|HDR|REMUX/gi;
-const RE_CLEAN_4 = /\.mp4|\.mkv|\.avi|\.flv/gi;
-const RE_SE = /[Ss](?:\d{1,2})?[-._\s]*[Ee](\d{1,3})/i;
-const RE_CN = /第\s*([零一二三四五六七八九十0-9]+)\s*[集话章节回期]/;
-const RE_EP = /\b(?:EP|E)[-._\s]*(\d{1,3})\b/i;
-const RE_STANDALONE = /(?:^|[\s\-\._\[\]])(\d{1,3})(?![0-9pP])/g;
-
-function preprocessTitle(title) {
-    if (!title) return "";
-    return title
-        .replace(RE_CLEAN_1, " ")
-        .replace(RE_CLEAN_2, " ")
-        .replace(RE_CLEAN_3, " ")
-        .replace(RE_CLEAN_4, " ");
-}
-
-function chineseToArabic(cn) {
-    const map = { '零': 0, '一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9, '十': 10 };
-    if (!isNaN(cn)) return parseInt(cn);
-    if (cn.length === 1) return map[cn] || cn;
-    if (cn.length === 2) {
-        if (cn[0] === '十') return 10 + map[cn[1]];
-        if (cn[1] === '十') return map[cn[0]] * 10;
-    }
-    if (cn.length === 3) return map[cn[0]] * 10 + map[cn[2]];
-    return cn;
-}
-
-function extractEpisode(title) {
-    if (!title) return "";
-    const processedTitle = preprocessTitle(title).trim();
-    const seMatch = processedTitle.match(RE_SE);
-    if (seMatch) return seMatch[1];
-    const cnMatch = processedTitle.match(RE_CN);
-    if (cnMatch) return String(chineseToArabic(cnMatch[1]));
-    const epMatch = processedTitle.match(RE_EP);
-    if (epMatch) return epMatch[1];
-    const standaloneMatches = processedTitle.match(RE_STANDALONE);
-    if (standaloneMatches) {
-        const candidates = standaloneMatches.map(m => m.match(/\d+/)[0]).filter(n => parseInt(n) > 0 && parseInt(n) < 300);
-        if (candidates.length > 0) return candidates[0];
-    }
-    return "";
-}
-
-function extractSeason(title) {
-    if (!title) return 1;
-    const cnMatch = title.match(/第\s*([零一二三四五六七八九十0-9]+)\s*季/);
-    if (cnMatch) return chineseToArabic(cnMatch[1]);
-    const enMatch = title.match(/Season\s*(\d+)/i) || title.match(/S(\d+)/i);
-    if (enMatch) return parseInt(enMatch[1]);
-    return 1;
-}
-
-function buildFileNameForDanmu(vodName, episodeTitle, seasonNum, episodeNum) {
-    if (!vodName) return "";
-    if (!episodeTitle || episodeTitle === '正片' || episodeTitle === '播放') return vodName;
-    
-    let s = seasonNum > 0 ? seasonNum : 1;
-    let e = episodeNum;
-
-    if (e === undefined || e === null) {
-        const digits = extractEpisode(episodeTitle);
-        if (digits) e = parseInt(digits, 10);
-    }
-
-    if (e > 0) {
-        const sStr = s < 10 ? `S0${s}` : `S${s}`;
-        const eStr = e < 10 ? `E0${e}` : `E${e}`;
-        return `${vodName} ${sStr}${eStr}`;
-    }
-    return vodName;
-}
-
-const buildScrapedEpisodeName = (scrapeData, mapping, originalName) => {
-    if (!mapping || mapping.episodeNumber === 0 || (mapping.confidence && mapping.confidence < 0.5)) {
-        return originalName;
-    }
-    if (mapping.episodeName) {
-        return `${mapping.episodeNumber}.${mapping.episodeName}`;
-    }
-    if (scrapeData && Array.isArray(scrapeData.episodes)) {
-        const hit = scrapeData.episodes.find(
-            ep => ep.episodeNumber === mapping.episodeNumber && ep.seasonNumber === mapping.seasonNumber
-        );
-        if (hit?.name) {
-            return `${hit.episodeNumber}.${hit.name}`;
-        }
-    }
-    return originalName;
-};
-
-async function matchDanmu(fileName) {
-    if (!DANMU_API || !fileName) return [];
+    let payload;
     try {
-        const matchUrl = `${DANMU_API}/api/v2/match`;
-        const response = await OmniBox.request(matchUrl, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "User-Agent": DEFAULT_HEADERS["User-Agent"] },
-            body: JSON.stringify({ fileName: fileName }),
-        });
-        if (response.statusCode !== 200) return [];
-        const matchData = JSON.parse(response.body);
-        if (!matchData.isMatched || !matchData.matches || matchData.matches.length === 0) return [];
-        
-        const firstMatch = matchData.matches[0];
-        const episodeId = firstMatch.episodeId;
-        const danmakuName = firstMatch.animeTitle && firstMatch.episodeTitle ? `${firstMatch.animeTitle} - ${firstMatch.episodeTitle}` : (firstMatch.animeTitle || firstMatch.episodeTitle || "弹幕");
-        
-        if (!episodeId) return [];
-        return [{ name: danmakuName, url: `${DANMU_API}/api/v2/comment/${episodeId}?format=xml` }];
-    } catch (error) {
-        return [];
-    }
-}
-
-// ==================== 详情页并发解析策略 ====================
-
-async function parse03yySource(url) {
-  const res = await fetchWithCookieRedirect(url, { "Referer": "https://www.03yy.live/" }, 4000);
-  const $$ = cheerio.load(res.data);
-  const tabs = [];
-  const sources = [];
-  $$("#playlist li").each((_, el) => { tabs.push($$(el).text().replace(/[\uE000-\uF8FF]/g, '').trim()); });
-
-  $$(".play-box .play_list").each((index, el) => {
-    const episodes = [];
-    $$(el).find("ul li a").each((_, a) => {
-      episodes.push({ name: $$(a).text().trim(), playId: toAbsUrl($$(a).attr("href"), "https://www.03yy.live") });
-    });
-    if (episodes.length > 0) sources.push({ name: `03影院 - ${tabs[index] || '线路'+(index+1)}`, episodes });
-  });
-  
-  if (sources.length === 0) throw new Error("03yy未匹配到任何剧集");
-  return { type: '03yy', sources };
-}
-
-// 【核心修复】增强版真狼解析器，增加 URL 去重，防止集数重复
-async function parseZhenlangSource(url) {
-  const res = await fetchWithCookieRedirect(url, { "Referer": "https://www.zhenlang.cc/" }, 4000);
-  const $$ = cheerio.load(res.data);
-  const sources = [];
-
-  // 1. 尝试通用 MacCMS 结构抓取线路名称
-  const tabs = [];
-  $$(".nav-tabs li a, .stui-vodlist__head h3, .myui-panel__head h3, .module-tab-item, .play_source_tab a").each((_, el) => {
-     let text = $$(el).text().replace(/[\uE000-\uF8FF]/g, '').trim();
-     if (text) tabs.push(text);
-  });
-
-  // 2. 尝试通用 MacCMS 结构抓取播放列表
-  const lists = $$(".stui-content__playlist, .myui-content__list, .module-play-list-content, .content_playlist, [id^='playlist']");
-  lists.each((index, el) => {
-    const episodes = [];
-    const seenUrls = new Set(); // 【新增】用于记录已经提取过的链接，防止重复
-
-    $$(el).find("a").each((_, a) => {
-      const href = $$(a).attr("href");
-      if (href && (href.includes("/play") || href.includes("/vodplay") || href.includes("vod-play"))) {
-        const playId = toAbsUrl(href, "https://www.zhenlang.cc");
-        
-        // 【核心修复】如果这个链接还没被提取过，才加入列表
-        if (!seenUrls.has(playId)) {
-            seenUrls.add(playId);
-            let epName = $$(a).text().trim() || "播放";
-            // 清理可能存在的多余换行符
-            epName = epName.replace(/\s+/g, ' '); 
-            episodes.push({ name: epName, playId: playId });
-        }
-      }
-    });
-    
-    if (episodes.length > 0) {
-        let tabName = tabs[index] || `线路${index + 1}`;
-        sources.push({ name: `真狼 - ${tabName}`, episodes });
-    }
-  });
-
-  // 3. 尝试旧版结构兜底
-  if (sources.length === 0) {
-    $$(".play_list_box").each((index, el) => {
-      let tabName = `线路${index + 1}`;
-      const tipMatch = ($$(el).find(".player_infotip").text() || "").match(/当前资源由(.*?)提供/);
-      if (tipMatch && tipMatch[1]) tabName = tipMatch[1].trim();
-
-      const episodes = [];
-      const seenUrls = new Set(); // 旧版结构也加上去重
-
-      $$(el).find(".content_playlist a").each((_, a) => {
-        const href = $$(a).attr("href");
-        if (href) {
-            const playId = toAbsUrl(href, "https://www.zhenlang.cc");
-            if (!seenUrls.has(playId)) {
-                seenUrls.add(playId);
-                episodes.push({ name: $$(a).text().trim(), playId: playId });
-            }
-        }
-      });
-      if (episodes.length > 0) sources.push({ name: `真狼 - ${tabName}`, episodes });
-    });
-  }
-
-  if (sources.length === 0) throw new Error("真狼网页结构变更，未匹配到任何剧集");
-  
-  return { type: 'zhenlang', sources };
-}
-
-async function parseKaixinSource(url) {
-  const res = await axiosInstance.get(url, { headers: { "User-Agent": DEFAULT_HEADERS["User-Agent"] }, timeout: 4000 });
-  const $$ = cheerio.load(res.data);
-  const tabs = [];
-  const sources = [];
-  
-  $$("ul.nav-tabs li a").each((_, el) => {
-    const tabName = $$(el).text().replace(/\s*\d+$/, '').trim();
-    const targetId = $$(el).attr("href");
-    if (tabName && targetId) tabs.push({ name: tabName, id: targetId });
-  });
-
-  tabs.forEach(tab => {
-    if (!tab.id || !tab.id.startsWith('#')) return;
-    try {
-      const episodes = [];
-      $$(tab.id).find(".btn-group a").each((_, a) => {
-        episodes.push({ name: $$(a).text().trim(), playId: toAbsUrl($$(a).attr("href"), "https://www.kxyytv.com") });
-      });
-      if (episodes.length > 0) sources.push({ name: `开心 - ${tab.name}`, episodes });
-    } catch (e) {}
-  });
-  
-  if (sources.length === 0) throw new Error("开心未匹配到任何剧集");
-  return { type: 'kaixin', sources };
-}
-
-// ==================== 核心接口 ====================
-
-async function home(params) {
-  const classes = [
-    { type_id: "1", type_name: "电影" },
-    { type_id: "2", type_name: "电视剧" },
-    { type_id: "5", type_name: "综艺" },
-    { type_id: "4", type_name: "动漫" },
-    { type_id: "3", type_name: "纪录片" }
-  ];
-  
-  const filters = {
-    "1": [{ key: "cateId", name: "类型", value: [{ n: "最新", v: "1", name: "最新", value: "1" }, { n: "动作", v: "6", name: "动作", value: "6" }, { n: "喜剧", v: "7", name: "喜剧", value: "7" }, { n: "爱情", v: "8", name: "爱情", value: "8" }, { n: "科幻", v: "9", name: "科幻", value: "9" }, { n: "恐怖", v: "10", name: "恐怖", value: "10" }, { n: "剧情", v: "11", name: "剧情", value: "11" }, { n: "战争", v: "12", name: "战争", value: "12" }] }],
-    "2": [{ key: "cateId", name: "类型", value: [{ n: "最新", v: "2", name: "最新", value: "2" }, { n: "国产剧", v: "13", name: "国产剧", value: "13" }, { n: "港台剧", v: "14", name: "港台剧", value: "14" }, { n: "日韩剧", v: "15", name: "日韩剧", value: "15" }, { n: "海外剧", v: "16", name: "海外剧", value: "16" }] }],
-    "4": [{ key: "cateId", name: "类型", value: [{ n: "最新", v: "4", name: "最新", value: "4" }, { n: "国产动漫", v: "24", name: "国产动漫", value: "24" }, { n: "日韩动漫", v: "25", name: "日韩动漫", value: "25" }, { n: "港台动漫", v: "26", name: "港台动漫", value: "26" }, { n: "欧美动漫", v: "27", name: "欧美动漫", value: "27" }] }],
-    "5": [{ key: "cateId", name: "类型", value: [{ n: "最新", v: "5", name: "最新", value: "5" }, { n: "大陆综艺", v: "17", name: "大陆综艺", value: "17" }, { n: "港台综艺", v: "18", name: "港台综艺", value: "18" }, { n: "日韩综艺", v: "20", name: "日韩综艺", value: "20" }, { n: "欧美综艺", v: "21", name: "欧美综艺", value: "21" }] }],
-    "3": [{ key: "cateClass", name: "类型", value: [{ n: "最新", v: "", name: "最新", value: "" }, { n: "记录", v: "记录", name: "记录", value: "记录" }, { n: "传记", v: "传记", name: "传记", value: "传记" }, { n: "历史", v: "历史", name: "历史", value: "历史" }, { n: "音乐", v: "音乐", name: "音乐", value: "音乐" }, { n: "运动", v: "运动", name: "运动", value: "运动" }, { n: "犯罪", v: "犯罪", name: "犯罪", value: "犯罪" }, { n: "情", v: "情", name: "情", value: "情" }, { n: "战争", v: "战争", name: "战争", value: "战争" }, { n: "冒险", v: "冒险", name: "冒险", value: "冒险" }, { n: "灾难", v: "灾难", name: "灾难", value: "灾难" }] }]
-  };
-
-  try {
-    const url = `${HOST}/api.php/xiao/vod?page=1&limit=20`;
-    const res = await axiosInstance.get(url, { 
-        headers: { ...DEFAULT_HEADERS, "X-Requested-With": "XMLHttpRequest" } 
-    });
-    
-    let list = [];
-    if (res.data && res.data.list) {
-        list = res.data.list.map(item => ({
-            vod_id: item.vod_id.toString(),
-            vod_name: item.vod_name,
-            vod_pic: item.vod_pic,
-            vod_remarks: parseFloat(item.vod_score) > 0 ? item.vod_score.toString() : ""
-        }));
-    }
-    
-    return { class: classes, filters: filters, list: list, page: 1, pagecount: res.data.pagecount || 99, limit: 20, total: res.data.total || 999 };
-  } catch (e) { 
-    return { class: classes, filters: filters, list: [], page: 1, pagecount: 1 }; 
-  }
-}
-
-
-async function category(params) {
-  let tid = params?.categoryId || params?.id || "1";
-  const pg = params?.page || 1;
-  let filterClass = "";
-
-  if (params?.filters) {
-      if (params.filters.cateId) {
-          tid = params.filters.cateId;
-      }
-      if (params.filters.cateClass) {
-          filterClass = encodeURIComponent(params.filters.cateClass);
-      }
-  }
-
-  try {
-    let url = `${HOST}/api.php/xiao/vod?type=${tid}&page=${pg}&limit=20`;
-    if (filterClass) {
-        url += `&class=${filterClass}`;
+      payload = JSON.parse(raw);
+    } catch {
+      payload = { directUrl: raw, source: params?.flag || "play" };
     }
 
-    const res = await axiosInstance.get(url, { 
-        headers: { 
-            ...DEFAULT_HEADERS, 
-            "Accept": "application/json, text/javascript, */*; q=0.01",
-            "X-Requested-With": "XMLHttpRequest" 
-        } 
-    });
-    
-    const data = res.data;
-    let list = [];
-    
-    if (data && data.list) {
-        list = data.list.map(item => ({
-            vod_id: item.vod_id.toString(),
-            vod_name: item.vod_name,
-            vod_pic: item.vod_pic,
-            vod_remarks: parseFloat(item.vod_score) > 0 ? item.vod_score.toString() : ""
-        }));
-    }
-
-    return { 
-        list: list, 
-        page: parseInt(data.page || pg), 
-        pagecount: parseInt(data.pagecount || 99), 
-        limit: 20, 
-        total: parseInt(data.total || 999) 
-    };
-  } catch (e) { 
-    return { list: [], page: 1, pagecount: 1 }; 
-  }
-}
-
-async function search(params) {
-  const wd = params?.keyword || params?.wd || "";
-  const pg = params?.page || 1;
-  
-  if (pg > 1) return { list: [], page: pg, pagecount: 1 };
-
-  try {
-    const apiUrl = `${HOST}/API/v2.php?q=${encodeURIComponent(wd)}&size=50`;
-    const apiRes = await axiosInstance.get(apiUrl, { headers: { ...DEFAULT_HEADERS, "Accept": "*/*" } });
-    
-    let apiData = [];
-    try {
-        const parsed = JSON.parse(d64(apiRes.data));
-        apiData = Array.isArray(parsed) ? parsed : (parsed.data || []);
-    } catch (e) {
-        logWarn("搜索API数据解析失败", e);
-    }
-
-    const groups = {};
-    for (let i = 0; i < apiData.length; i++) {
-        const item = apiData[i];
-        if (typeof item === 'object' && item.text && item.url) {
-            const title = item.text.trim();
-            if (!groups[title]) {
-                groups[title] = {
-                    vod_id: `search_${title}`, 
-                    vod_name: title,
-                    vod_pic: "https://www.ymck.pro/upload/site/20230825-1/5c00fbcfb4ff0737d3c8320d30b2d1de.png", 
-                    vod_remarks: "全网聚合"
-                };
-            }
-        }
-    }
-
-    const list = Object.values(groups);
-    return { list: list, page: 1, pagecount: 1, limit: 50, total: list.length };
-  } catch (e) { 
-    return { list: [], page: 1, pagecount: 1 }; 
-  }
-}
-
-async function detail(params) {
-  const t0 = Date.now();
-  const id = params?.videoId || params?.id || "";
-  if (!id) return { list: [] };
-
-  try {
-    let vodName = "";
-    let vodPic = "";
-    let vodContent = "";
-    let vodYear = "";
-    let vodActor = "";
-    let vodDirector = "";
-
-    if (id.startsWith("search_")) {
-        vodName = id.replace("search_", "");
-        vodPic = "https://www.ymck.pro/upload/site/20230825-1/5c00fbcfb4ff0737d3c8320d30b2d1de.png";
-        vodContent = "全网聚合搜索结果，正在通过 TMDB 刮削获取详细信息...";
-    } else {
-        let targetUrl = id;
-        if (/^\d+$/.test(id)) {
-            targetUrl = `${HOST}/movie/${id}.html`;
-        } else if (!id.startsWith("http")) {
-            targetUrl = toAbsUrl(id);
-        }
-
-        const res = await axiosInstance.get(targetUrl, { headers: DEFAULT_HEADERS });
-        const $ = cheerio.load(res.data);
-
-        vodName = $(".movie-title").first().text().trim().replace(/影片信息$/, "").trim();
-        if (!vodName) return { list: [] };
-        
-        vodPic = toAbsUrl($(".poster img").attr("src"));
-        vodContent = $(".summary.detailsTxt").last().text().replace("简介：", "").trim();
-    }
-
-    let playSources = [];
-    let parsedFlags = { '03yy': false, 'zhenlang': false, 'kaixin': false };
-
-    const tApi = Date.now();
-    const apiUrl = `${HOST}/API/v2.php?q=${encodeURIComponent(vodName)}&size=50`;
-    try {
-      const apiRes = await axiosInstance.get(apiUrl, { headers: { ...DEFAULT_HEADERS, "Accept": "*/*" } });
-      
-      let apiData = [];
-      try {
-          const parsed = JSON.parse(d64(apiRes.data));
-          apiData = Array.isArray(parsed) ? parsed : (parsed.data || []);
-      } catch (e) {
-          logWarn("聚合API数据解析失败", e);
-      }
-
-      const target03yy = apiData.find(item => item && item.url && item.url.includes("03yy.live"));
-      const targetZhenlang = apiData.find(item => item && item.url && item.url.includes("zhenlang.cc"));
-      const targetKaixin = apiData.find(item => item && item.url && item.url.includes("kxyytv.com"));
-
-      const tSource = Date.now();
-      const tasks = [];
-
-      const wrapTask = async (name, taskPromise) => {
-          const tStart = Date.now();
-          try {
-              const res = await taskPromise;
-              return { name, status: '成功', time: Date.now() - tStart, data: res };
-          } catch (e) {
-              return { name, status: '失败', time: Date.now() - tStart };
-          }
-      };
-
-      if (target03yy) tasks.push(wrapTask('03影院', parse03yySource(target03yy.url)));
-      if (targetZhenlang) tasks.push(wrapTask('真狼', parseZhenlangSource(targetZhenlang.url)));
-      if (targetKaixin) tasks.push(wrapTask('开心', parseKaixinSource(targetKaixin.url)));
-
-      if (tasks.length > 0) {
-        const results = await Promise.all(tasks);
-        
-        let logDetails = [];
-        results.forEach(r => {
-            // 【核心修复】必须确保 sources 里面真的有数据，才算真正成功
-            if (r.status === '成功' && r.data && r.data.sources && r.data.sources.length > 0) {
-                logDetails.push(`${r.name}:成功(${r.time}ms)`);
-                playSources.push(...r.data.sources);
-                parsedFlags[r.data.type] = true;
-            } else {
-                logDetails.push(`${r.name}:无数据/失败(${r.time}ms)`);
-            }
-        });
-        logInfo(`源站解析完成, 耗时: ${Date.now() - tSource}ms, 详情: [ ${logDetails.join(' | ')} ]`);
-      }
-
-      const fallbackEpisodes = [];
-      for (let i = 0; i < apiData.length; i++) {
-        const item = apiData[i];
-        if (item && item.website && item.url) {
-          if (parsedFlags['03yy'] && item.url.includes("03yy.live")) continue;
-          if (parsedFlags['zhenlang'] && item.url.includes("zhenlang.cc")) continue;
-          if (parsedFlags['kaixin'] && item.url.includes("kxyytv.com")) continue;
-          fallbackEpisodes.push({ name: `${item.website} (需嗅探)`, playId: item.url });
-        }
-      }
-      if (fallbackEpisodes.length > 0) playSources.push({ name: "全网聚合备用源", episodes: fallbackEpisodes });
-
-    } catch (e) {
-      logWarn("聚合API请求失败", e);
-    }
-
-    // ================= 2. 刮削处理 =================
-    const tScrape = Date.now();
-    let scrapeData = null;
-    let videoMappings = [];
-    const scrapeCandidates = [];
-
-    const currentSeason = extractSeason(vodName);
-    const sStr = currentSeason < 10 ? `S0${currentSeason}` : `S${currentSeason}`;
-
-    playSources.forEach((source, sIdx) => {
-        source.episodes.forEach((ep, eIdx) => {
-            const fid = `${id}_${sIdx}_${eIdx}`;
-            ep._fid = fid; 
-            
-            const epNumStr = extractEpisode(ep.name);
-            let fileNameForScrape = `${vodName} ${ep.name}`; 
-            
-            if (epNumStr) {
-                const epNum = parseInt(epNumStr, 10);
-                const eStr = epNum < 10 ? `E0${epNum}` : `E${epNum}`;
-                fileNameForScrape = `${vodName} ${sStr}${eStr}`;
-            }
-
-            scrapeCandidates.push({
-                fid: fid, 
-                file_id: fid, 
-                file_name: fileNameForScrape, 
-                name: ep.name, 
-                format_type: "video"
-            });
-        });
-    });
-
-    if (scrapeCandidates.length > 0) {
-        try {
-            await OmniBox.processScraping(id, vodName, vodName, scrapeCandidates);
-            const metadata = await OmniBox.getScrapeMetadata(id);
-            scrapeData = metadata?.scrapeData || null;
-            videoMappings = metadata?.videoMappings || [];
-            
-            if (scrapeData) {
-                vodName = scrapeData.title || vodName;
-                if (scrapeData.posterPath) vodPic = `https://image.tmdb.org/t/p/w500${scrapeData.posterPath}`;
-                if (scrapeData.overview) vodContent = scrapeData.overview;
-                if (scrapeData.releaseDate) vodYear = String(scrapeData.releaseDate).substring(0, 4);
-                const actors = (scrapeData.credits?.cast || []).slice(0, 5).map(c => c?.name).filter(Boolean).join(",");
-                if (actors) vodActor = actors;
-                const directors = (scrapeData.credits?.crew || []).filter(c => c?.job === "Director").slice(0, 3).map(c => c?.name).filter(Boolean).join(",");
-                if (directors) vodDirector = directors;
-            }
-
-            playSources.forEach(source => {
-                source.episodes.forEach(ep => {
-                    let meta = { fid: ep._fid, v: vodName, e: ep.name };
-                    const mapping = videoMappings.find(m => m?.fileId === ep._fid);
-                    
-                    if (mapping) {
-                        const newName = buildScrapedEpisodeName(scrapeData, mapping, ep.name);
-                        if (newName && newName !== ep.name) ep.name = newName;
-                        meta.s = mapping.seasonNumber;
-                        meta.n = mapping.episodeNumber;
-                        meta.e = ep.name;
-                        
-                        ep._s = mapping.seasonNumber;
-                        ep._n = mapping.episodeNumber;
-                    }
-                    ep.playId = `${ep.playId}|||${encodeMeta(meta)}`;
-                });
-
-                const hasEpisodeNumber = source.episodes.some(ep => ep._n !== undefined);
-                
-                if (hasEpisodeNumber) {
-                    source.episodes.sort((a, b) => {
-                        const seasonA = a._s || 0;
-                        const seasonB = b._s || 0;
-                        if (seasonA !== seasonB) return seasonA - seasonB;
-                        const episodeA = a._n || 0;
-                        const episodeB = b._n || 0;
-                        return episodeA - episodeB;
-                    });
-                }
-            });
-        } catch (e) {}
-    }
-
-    logInfo(`详情页加载完成, 影片: ${vodName}, 刮削耗时: ${Date.now() - tScrape}ms, 总耗时: ${Date.now() - t0}ms`);
-
-    return { 
-        list: [{ 
-            vod_id: id, vod_name: vodName, vod_pic: vodPic, vod_content: vodContent, 
-            vod_year: vodYear, vod_actor: vodActor, vod_director: vodDirector,
-            vod_play_sources: playSources 
-        }] 
-    };
-  } catch (e) { 
-    return { list: [] }; 
-  }
-}
-
-// ==================== 播放页策略模式解析器 ====================
-
-async function play03yy(url, baseResult) {
-  try {
-    logInfo(`[03影院] 开始解析播放页: ${url}`);
-    const res = await fetchWithCookieRedirect(url, { "Referer": "https://www.03yy.live/" }, 5000);
-    const html = res.data;
-
-    const nowMatch = html.match(/var now=base64decode\("([^"]+)"\)/);
-    const pnMatch = html.match(/var pn="([^"]+)"/);
-
-    if (nowMatch && nowMatch[1]) {
-      const nowStr = d64(nowMatch[1]);
-      const pn = pnMatch ? pnMatch[1] : "未知";
-      
-      logInfo(`[03影院] 提取参数成功 -> pn: ${pn}, now: ${nowStr}`);
-
-      if (pn === "btiyikk" || pn === "03yyhd") {
-        logInfo(`[03影院] 匹配为【高速线路】(${pn}), 准备请求 btiyikk 接口...`);
-        const apiUrl = `https://www.03yy.live/api/btiyikk.php?url=${encodeURIComponent(nowStr)}&ref=${encodeURIComponent(url)}`;
-        const apiRes = await fetchWithCookieRedirect(apiUrl, { "Referer": url }, 5000);
-        const videoMatch = apiRes.data.match(/const videoUrl\s*=\s*"([^"]+)"/);
-        
-        if (videoMatch && videoMatch[1]) {
-          const finalUrl = videoMatch[1].replace(/\\\//g, '/');
-          logInfo(`[03影院] 高速线路解析成功: ${finalUrl}`);
-          baseResult.urls = [{ name: "03高速直链", url: finalUrl }];
-          return baseResult;
-        }
-      } 
-            else if (pn === "qq") {
-        logInfo(`[03影院] 匹配为【高清备用】(${pn}), 准备请求 playlink 接口...`);
-        const apiUrl = `https://www.03yy.live/api/playlink.php?url=${encodeURIComponent(nowStr)}`;
-        const apiRes = await fetchWithCookieRedirect(apiUrl, { "Referer": url }, 5000);
-        const videoMatch = apiRes.data.match(/const videoUrl\s*=\s*"([^"]+)"/);
-        
-        if (videoMatch && videoMatch[1]) {
-          const finalUrl = videoMatch[1].replace(/\\\//g, '/');
-          logInfo(`[03影院] 高清备用解析成功: ${finalUrl}`);
-          baseResult.urls = [{ name: "03高清备用", url: finalUrl }];
-          baseResult.header = { "Referer": "https://www.03yy.live/", "User-Agent": DEFAULT_HEADERS["User-Agent"] };
-          return baseResult;
-        }
-      }
-      else if (pn === "1080zyk") {
-        logInfo(`[03影院] 匹配为【普通线路】(${pn}), 准备请求 e1080 接口...`);
-        const apiUrl = `https://www.03yy.live/api/e1080.php?url=${encodeURIComponent(nowStr)}`;
-        const apiRes = await fetchWithCookieRedirect(apiUrl, { "Referer": url }, 5000);
-        const videoMatch = apiRes.data.match(/var videoUrl\s*=\s*"([^"]+)"/);
-        
-        if (videoMatch && videoMatch[1]) {
-          const finalUrl = videoMatch[1].replace(/\\\//g, '/');
-          logInfo(`[03影院] 普通线路解析成功: ${finalUrl}`);
-          baseResult.urls = [{ name: "03普线直链", url: finalUrl }];
-          baseResult.header = { "Referer": "https://www.03yy.live/", "User-Agent": DEFAULT_HEADERS["User-Agent"] };
-          return baseResult;
-        }
-      } 
-      else {
-        logInfo(`[03影院] 未知的线路标识 pn: ${pn}，尝试原生直链兜底`);
-      }
-
-      if (nowStr.includes(".m3u8") || nowStr.includes(".mp4")) {
-        logInfo(`[03影院] 触发原生直链兜底成功: ${nowStr}`);
-        baseResult.urls = [{ name: "03原生直链", url: nowStr }];
-        return baseResult;
-      }
-    } else {
-      logWarn(`[03影院] 网页源码中未找到 now 变量，可能网页结构已改变`);
-    }
-  } catch (e) {
-    logWarn(`[03影院] 播放解析发生代码异常: ${e.message}`);
-  }
-  
-  logInfo(`[03影院] 所有直链尝试均失败，交由外层嗅探器处理`);
-  return null; 
-}
-
-async function playKaixin(url, baseResult) {
-  try {
-    const res = await axiosInstance.get(url, { headers: { "User-Agent": DEFAULT_HEADERS["User-Agent"] }, timeout: 5000 });
-    const playerMatch = res.data.match(/var player_data\s*=\s*(\{[\s\S]+?\})\s*;?\s*</);
-    if (playerMatch && playerMatch[1]) {
-      const playerObj = JSON.parse(playerMatch[1]);
-      let targetUrl = playerObj.url;
-      let encrypt = playerObj.encrypt || 0;
-      if (encrypt === 1) targetUrl = safeDecode(targetUrl);
-      else if (encrypt === 2) targetUrl = safeDecode(Buffer.from(targetUrl, "base64").toString("utf8"));
-      if (targetUrl) {
-        baseResult.urls = [{ name: "直链秒播", url: targetUrl }];
-        return baseResult;
-      }
-    }
-  } catch (e) {}
-  return null;
-}
-
-async function playZhenlang(url, baseResult) {
-  try {
-    const res = await axiosInstance.get(url, { headers: { "User-Agent": DEFAULT_HEADERS["User-Agent"] }, timeout: 5000 });
-    let targetUrl = "";
-    let encrypt = 0;
-    const playerMatch = res.data.match(/var player_aaaa\s*=\s*(\{[\s\S]+?\})\s*;?\s*</);
-    if (playerMatch && playerMatch[1]) {
-      try {
-        const playerObj = JSON.parse(playerMatch[1]);
-        targetUrl = playerObj.url;
-        encrypt = playerObj.encrypt;
-      } catch (e) {
-        const uMatch = playerMatch[1].match(/"url":"([^"]+)"/);
-        const eMatch = playerMatch[1].match(/"encrypt":(\d)/);
-        if (uMatch) targetUrl = uMatch[1];
-        if (eMatch) encrypt = parseInt(eMatch[1]);
-      }
-    }
-    
-    if (targetUrl) {
-      if (encrypt === 1) targetUrl = safeDecode(targetUrl);
-      else if (encrypt === 2) targetUrl = safeDecode(Buffer.from(targetUrl, "base64").toString("utf8"));
-      
-      if (targetUrl.includes(".m3u8") || targetUrl.includes(".mp4")) {
-        baseResult.urls = [{ name: "直链秒播", url: targetUrl }];
-        return baseResult;
-      }
-
-      try {
-        const sniffUrl = `https://super.playr.top/?url=${encodeURIComponent(targetUrl)}`;
-        const playerRes = await axiosInstance.get(sniffUrl, { headers: { "Referer": "https://www.zhenlang.cc/" }, timeout: 5000 });
-        const keyMatch = playerRes.data.match(/var\s+precomputedKey\s*=\s*['"]([^'"]+)['"]/);
-        const ivMatch = playerRes.data.match(/var\s+precomputedIv\s*=\s*['"]([^'"]+)['"]/);
-        
-        if (keyMatch && ivMatch) {
-          const dynamicKey = keyMatch[1];
-          const dynamicIv = ivMatch[1];
-          const tokenRes = await axiosInstance.get(`https://super.playr.top/token.php?url=${encodeURIComponent(targetUrl)}`, { headers: { "Referer": "https://www.zhenlang.cc/" }, timeout: 5000 });
-          if (tokenRes.data && tokenRes.data.code === 0) {
-            const apiRes = await axiosInstance.get(`https://super.playr.top/api.php?url=${encodeURIComponent(targetUrl)}&token=${tokenRes.data.token}&t=${tokenRes.data.t}`, { headers: { "Referer": "https://www.zhenlang.cc/" }, timeout: 5000 });
-            if (apiRes.data && apiRes.data.e === 1 && apiRes.data.d) {
-              const decipher = crypto.createDecipheriv("aes-128-cbc", Buffer.from(dynamicKey), Buffer.from(dynamicIv));
-              let decrypted = decipher.update(apiRes.data.d, "base64", "utf8");
-              decrypted += decipher.final("utf8");
-              const parsedData = JSON.parse(decrypted);
-              if (parsedData.url) {
-                baseResult.urls = [{ name: "逆向秒播", url: parsedData.url }];
-                return baseResult;
-              }
-            } else if (apiRes.data && apiRes.data.url) {
-              baseResult.urls = [{ name: "逆向秒播", url: apiRes.data.url }];
-              return baseResult;
-            }
-          }
-        }
-      } catch (crackErr) {}
-
-      const sniffUrl = `https://super.playr.top/?url=${encodeURIComponent(targetUrl)}`;
-      const sniffResult = await OmniBox.sniffVideo(sniffUrl);
-      if (sniffResult && sniffResult.url) {
-          baseResult.urls = [{ name: "嗅探线路", url: sniffResult.url }];
-          baseResult.header = sniffResult.header || DEFAULT_HEADERS;
-          return baseResult;
-      }
-    }
-  } catch (e) {}
-  return null;
-}
-
-async function play(params) {
-  const t0 = Date.now();
-  const playId = params?.playId || params?.id || "";
-  if (!playId) return { urls: [] };
-
-  let rawPlayId = playId;
-  let playMeta = {};
-  if (playId.includes('|||')) {
-      const parts = playId.split('|||');
-      rawPlayId = parts[0];
-      playMeta = decodeMeta(parts[1] || "");
-  }
-
-  let playResult = { urls: [], parse: 0, header: DEFAULT_HEADERS };
-
-  let danmakuPromise = Promise.resolve([]);
-  if (DANMU_API) {
-      let vodName = params.vodName || playMeta.v || "";
-      let episodeName = params.episodeName || playMeta.e || "";
-      const fileName = buildFileNameForDanmu(vodName, episodeName, playMeta.s, playMeta.n);
-      if (fileName) danmakuPromise = matchDanmu(fileName).catch(() => []);
-  }
-
-  let specificResultPromise = Promise.resolve(null);
-  if (rawPlayId.includes("03yy.live")) specificResultPromise = play03yy(rawPlayId, playResult);
-  else if (rawPlayId.includes("kxyytv.com")) specificResultPromise = playKaixin(rawPlayId, playResult);
-  else if (rawPlayId.includes("zhenlang.cc")) specificResultPromise = playZhenlang(rawPlayId, playResult);
-
-  const [specificResult, danmakuList] = await Promise.all([specificResultPromise, danmakuPromise]);
-
-  if (danmakuList && danmakuList.length > 0) {
-      if (specificResult) specificResult.danmaku = danmakuList;
-      playResult.danmaku = danmakuList;
-  }
-
-  if (specificResult && specificResult.urls.length > 0) {
-      logInfo(`播放解析完成 (直链), 耗时: ${Date.now() - t0}ms`);
-      return specificResult;
-  }
-
-  try {
-    const sniffResult = await OmniBox.sniffVideo(rawPlayId);
-    if (sniffResult && sniffResult.url) {
-      playResult.urls = [{ name: "嗅探线路", url: sniffResult.url }];
-      playResult.header = sniffResult.header || DEFAULT_HEADERS;
-      logInfo(`播放解析完成 (嗅探), 耗时: ${Date.now() - t0}ms`);
-      return playResult;
-    }
-  } catch (e) {}
-
-  playResult.urls = [{ name: "网页解析", url: rawPlayId }];
-  playResult.parse = 1;
-  logInfo(`播放解析完成 (交由播放器), 耗时: ${Date.now() - t0}ms`);
-  return playResult;
-}
-
-module.exports = { home, category, detail, search, play };
-const runner = require("spider_runner");
-runner.run(module.exports);
-
-});
-
-_load(5, "新韩剧网", function (module, exports, require) {
-// @name 新韩剧网
-// @author Monica
-// @description 刮削：支持，弹幕：支持，嗅探：支持
-// @dependencies: cheerio, crypto-js
-// @version 1.1.2
-// @downloadURL https://gh-proxy.org/https://github.com/Silent1566/OmniBox-Spider/raw/refs/heads/main/影视/采集/新韩剧网.js
-
-const OmniBox = require("omnibox_sdk");
-const cheerio = require("cheerio");
-const CryptoJS = require("crypto-js");
-
-const hanjuConfig = {
-    host: "https://www.9hanju.com",
-    headers: {
-        "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36",
-        "Referer": "https://www.hanju7.com/",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-        "Accept-Language": "zh-CN,zh;q=0.9",
-        "Accept-Encoding": "gzip, deflate",
-        "Connection": "keep-alive",
-        "Cache-Control": "max-age=0",
-        "Upgrade-Insecure-Requests": "1"
-    }
-};
-
-const DEFAULT_PIC = "https://youke2.picui.cn/s1/2025/12/21/694796745c0c6.png";
-const DANMU_API = process.env.DANMU_API || "";
-
-// ==========================================================================
-// 日志工具
-// ==========================================================================
-const logInfo = (message, data = null) => {
-    const output = data ? `${message}: ${JSON.stringify(data)}` : message;
-    OmniBox.log("info", `[新韩剧网-DEBUG] ${output}`);
-};
-
-const logError = (message, error) => {
-    OmniBox.log("error", `[新韩剧网-DEBUG] ${message}: ${error?.message || error}`);
-};
-
-// ============================================================================
-// 刮削与弹幕辅助函数
-// ============================================================================
-const encodeMeta = (obj) => {
-    try { return Buffer.from(JSON.stringify(obj || {}), "utf8").toString("base64"); } 
-    catch { return ""; }
-};
-
-const decodeMeta = (str) => {
-    try { return JSON.parse(Buffer.from(str || "", "base64").toString("utf8") || "{}"); } 
-    catch { return {}; }
-};
-
-function preprocessTitle(title) {
-    if (!title) return "";
-    return title
-        .replace(/4[kK]|[xX]26[45]|720[pP]|1080[pP]|2160[pP]/g, " ")
-        .replace(/[hH]\.?26[45]/g, " ")
-        .replace(/BluRay|WEB-DL|HDR|REMUX/gi, " ")
-        .replace(/\.mp4|\.mkv|\.avi|\.flv/gi, " ");
-}
-
-function chineseToArabic(cn) {
-    const map = { '零': 0, '一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9, '十': 10 };
-    if (!isNaN(cn)) return parseInt(cn);
-    if (cn.length === 1) return map[cn] || cn;
-    if (cn.length === 2) {
-        if (cn[0] === '十') return 10 + map[cn[1]];
-        if (cn[1] === '十') return map[cn[0]] * 10;
-    }
-    if (cn.length === 3) return map[cn[0]] * 10 + map[cn[2]];
-    return cn;
-}
-
-function extractEpisode(title) {
-    if (!title) return "";
-    const processedTitle = preprocessTitle(title).trim();
-    const cnMatch = processedTitle.match(/第\s*([零一二三四五六七八九十0-9]+)\s*[集话章节回期]/);
-    if (cnMatch) return String(chineseToArabic(cnMatch[1]));
-    const seMatch = processedTitle.match(/[Ss](?:\d{1,2})?[-._\s]*[Ee](\d{1,3})/i);
-    if (seMatch) return seMatch[1];
-    const epMatch = processedTitle.match(/\b(?:EP|E)[-._\s]*(\d{1,3})\b/i);
-    if (epMatch) return epMatch[1];
-    const bracketMatch = processedTitle.match(/[\[\(【(](\d{1,3})[\]\)】)]/);
-    if (bracketMatch) {
-        const num = bracketMatch[1];
-        if (!["720", "1080", "480"].includes(num)) return num;
-    }
-    return "";
-}
-
-function buildFileNameForDanmu(vodName, episodeTitle) {
-    if (!vodName) return "";
-    if (!episodeTitle || episodeTitle === '正片' || episodeTitle === '播放') return vodName;
-    const digits = extractEpisode(episodeTitle);
-    if (digits) {
-        const epNum = parseInt(digits, 10);
-        if (epNum > 0) {
-            return epNum < 10 ? `${vodName} S01E0${epNum}` : `${vodName} S01E${epNum}`;
-        }
-    }
-    return vodName;
-}
-
-const buildScrapedDanmuFileName = (scrapeData, scrapeType, mapping, fallbackVodName, fallbackEpisodeName) => {
-    if (!scrapeData) {
-        return buildFileNameForDanmu(fallbackVodName, fallbackEpisodeName);
-    }
-    if (scrapeType === "movie") {
-        return scrapeData.title || fallbackVodName;
-    }
-    const title = scrapeData.title || fallbackVodName;
-    const seasonAirYear = scrapeData.seasonAirYear || "";
-    const seasonNumber = mapping?.seasonNumber || 1;
-    const episodeNumber = mapping?.episodeNumber || 1;
-    return `${title}.${seasonAirYear}.S${String(seasonNumber).padStart(2, "0")}E${String(episodeNumber).padStart(2, "0")}`;
-};
-
-function buildScrapedEpisodeName(scrapeData, mapping, originalName) {
-    if (!mapping || mapping.episodeNumber === 0 || (mapping.confidence && mapping.confidence < 0.5)) {
-        return originalName;
-    }
-    if (mapping.episodeName) {
-        const epName = mapping.episodeNumber + "." + mapping.episodeName;
-        return epName;
-    }
-    if (scrapeData && Array.isArray(scrapeData.episodes)) {
-        const hit = scrapeData.episodes.find(
-            (ep) => ep.episodeNumber === mapping.episodeNumber && ep.seasonNumber === mapping.seasonNumber
-        );
-        if (hit?.name) return `${hit.episodeNumber}.${hit.name}`;
-    }
-    return originalName;
-}
-
-const matchDanmu = async (fileName) => {
-    if (!DANMU_API || !fileName) return [];
-
-    try {
-        logInfo(`匹配弹幕: ${fileName}`);
-        const matchUrl = `${DANMU_API}/api/v2/match`;
-        const response = await OmniBox.request(matchUrl, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            },
-            body: JSON.stringify({ fileName }),
-        });
-
-        if (response.statusCode !== 200) {
-            logInfo(`弹幕匹配失败: HTTP ${response.statusCode}`);
-            return [];
-        }
-
-        const matchData = JSON.parse(response.body);
-        if (!matchData.isMatched) {
-            logInfo("弹幕未匹配到");
-            return [];
-        }
-
-        const matches = matchData.matches || [];
-        if (matches.length === 0) return [];
-
-        const firstMatch = matches[0];
-        const episodeId = firstMatch.episodeId;
-        const animeTitle = firstMatch.animeTitle || "";
-        const episodeTitle = firstMatch.episodeTitle || "";
-        if (!episodeId) return [];
-
-        let danmakuName = "弹幕";
-        if (animeTitle && episodeTitle) {
-            danmakuName = `${animeTitle} - ${episodeTitle}`;
-        } else if (animeTitle) {
-            danmakuName = animeTitle;
-        } else if (episodeTitle) {
-            danmakuName = episodeTitle;
-        }
-
-        return [{
-            name: danmakuName,
-            url: `${DANMU_API}/api/v2/comment/${episodeId}?format=xml`,
-        }];
-    } catch (error) {
-        logInfo(`弹幕匹配失败: ${error.message}`);
-        return [];
-    }
-};
-
-// ============================================================================
-// 网络请求与核心逻辑
-// ============================================================================
-const fetchHtml = async (url, options = {}) => {
-    try {
-        const res = await OmniBox.request(url, {
-            method: options.method || "GET",
-            headers: options.headers || hanjuConfig.headers,
-            body: options.body,
-            timeout: 10000,
-            gzip: true 
-        });
-        if (res.statusCode !== 200) throw new Error(`HTTP ${res.statusCode}`);
-        return cheerio.load(res.body);
-    } catch (e) {
-        logError(`请求失败: ${url}`, e);
-        throw e;
-    }
-};
-
-const getClasses = () => {
-    return [
-        { type_id: "1", type_name: "韩剧" },
-        { type_id: "3", type_name: "韩国电影" },
-        { type_id: "4", type_name: "韩国综艺" },
-        { type_id: "hot", type_name: "排行榜" },
-        { type_id: "new", type_name: "最新更新" }
-    ];
-};
-
-const getCleanText = (el) => {
-    let text = "";
-    el.contents().each((_, node) => {
-        if (node.type === 'text') text += node.data;
-    });
-    return text.trim();
-};
-
-const normalizePic = (pic) => {
-    const value = String(pic || "").trim();
-    if (!value) return "";
-    if (value.startsWith("//")) return `https:${value}`;
-    if (/^https?:\/\//i.test(value)) return value;
-    try { return new URL(value, hanjuConfig.host).toString(); }
-    catch { return value; }
-};
-
-const getPicFromDetail = async (id) => {
-    try {
-        const detailUrl = /^https?:\/\//i.test(String(id || "")) ? String(id) : `${hanjuConfig.host}${id}`;
-        const $ = await fetchHtml(detailUrl);
-        const pic = $("div.detail div.pic img").attr("data-original") || $("div.detail div.pic img").attr("src") || "";
-        return normalizePic(pic) || DEFAULT_PIC;
-    } catch (error) {
-        logInfo(`详情封面获取失败: ${id}: ${error.message}`);
-        return DEFAULT_PIC;
-    }
-};
-
-const mapWithConcurrency = async (items, limit, mapper) => {
-    const values = Array.from(items || []);
-    const results = new Array(values.length);
-    let cursor = 0;
-    const workers = Array.from({ length: Math.min(Math.max(1, limit), values.length) }, async () => {
-        while (cursor < values.length) {
-            const index = cursor++;
-            results[index] = await mapper(values[index], index);
-        }
-    });
-    await Promise.all(workers);
-    return results;
-};
-
-const normalizeSniffUrls = (result, defaultName = "嗅探线路") => {
-    const urls = [];
-    const seen = new Set();
-    const append = (item) => {
-        const value = typeof item === "string" ? item : (item?.url || item?.playUrl || item?.src || "");
-        const url = String(value || "").trim();
-        if (!url || seen.has(url)) return;
-        seen.add(url);
-        urls.push({ name: String(item?.name || defaultName), url });
-    };
-    if (Array.isArray(result?.urls)) result.urls.forEach(append);
-    if (!urls.length) append(result);
-    return urls;
-};
-
-async function home(params) {
-    try {
-        logInfo("进入首页");
-        const $ = await fetchHtml(`${hanjuConfig.host}`);
-        const list = [];
-        $("div.list ul li").slice(0, 100).each((_, el) => {
-            const a = $(el).find("a");
-            const href = a.attr("href");
-            if (href) {
-                list.push({
-                    vod_id: href,
-                    vod_name: getCleanText(a) || a.attr("title"),
-                    vod_pic: normalizePic(a.attr("data-original")) || DEFAULT_PIC,
-                    vod_remarks: $(el).find("span").first().text() || ""
-                });
-            }
-        });
-        logInfo(`首页获取到 ${list.length} 个项目`);
-        return { class: getClasses(), filters: {}, list: list };
-    } catch (e) {
-        logError("首页请求失败", e);
-        return { class: getClasses(), filters: {}, list: [] };
-    }
-}
-
-async function category(params) {
-    const tid = params.categoryId;
-    const pg = Math.max(1, parseInt(params.page || 1));
-
-    try {
-        logInfo(`请求分类: ${tid}, 页码: ${pg}`);
-        if (["hot", "new"].includes(tid)) {
-            const $ = await fetchHtml(`${hanjuConfig.host}/${tid}.html`);
-            const allItems = $("div.txt ul li, div.list_txt ul li").get();
-            const pageSize = 20;
-            const total = allItems.length;
-            const pageCount = Math.max(1, Math.ceil(total / pageSize));
-            const pageItems = allItems.slice((pg - 1) * pageSize, pg * pageSize);
-            const list = await mapWithConcurrency(pageItems, 5, async (el) => {
-                const a = $(el).find("a").first();
-                const href = a.attr("href");
-                if (!href) return null;
-                return {
-                    vod_id: href,
-                    vod_name: getCleanText(a) || a.attr("title") || "",
-                    vod_pic: await getPicFromDetail(href),
-                    vod_remarks: $(el).find("#actor, span").first().text().trim(),
-                };
-            });
-            const filtered = list.filter(Boolean);
-            logInfo(`分类 ${tid} 第 ${pg} 页获取到 ${filtered.length} 个项目`);
-            return { list: filtered, page: pg, pagecount: pageCount, limit: pageSize, total };
-        }
-
-        const $ = await fetchHtml(`${hanjuConfig.host}/list/${tid}---${pg - 1}.html`);
-        const list = [];
-        $("div.list ul li").each((_, el) => {
-            const a = $(el).find("a.tu").first();
-            const href = a.attr("href");
-            if (!href) return;
-            list.push({
-                vod_id: href,
-                vod_name: a.attr("title") || getCleanText(a),
-                vod_pic: normalizePic(a.attr("data-original")) || DEFAULT_PIC,
-                vod_remarks: $(el).find("span.tip").text().trim(),
-            });
-        });
-        logInfo(`分类 ${tid} 第 ${pg} 页获取到 ${list.length} 个项目`);
-        return { list, page: pg, pagecount: 100, limit: list.length, total: 9999 };
-    } catch (e) {
-        logError("分类请求失败", e);
-        return { list: [], page: pg, pagecount: pg, limit: 0, total: 0 };
-    }
-}
-
-async function search(params) {
-    const keyword = params.keyword || params.wd || "";
-    if (!keyword) return { list: [], page: 1, pagecount: 0, total: 0 };
-
-    try {
-        logInfo(`搜索关键词: ${keyword}`);
-        const formData = `show=searchkey&keyboard=${encodeURIComponent(keyword)}`;
-        let searchRes = await OmniBox.request(`${hanjuConfig.host}/search/`, {
-            method: "POST",
-            headers: {
-                ...hanjuConfig.headers,
-                "Content-Type": "application/x-www-form-urlencoded",
-            },
-            body: formData,
-            timeout: 15000,
-            gzip: true,
-        });
-
-        if (Number(searchRes?.statusCode) >= 300 && Number(searchRes?.statusCode) < 400) {
-            const location = searchRes?.headers?.location || searchRes?.headers?.Location || "";
-            if (!location) return { list: [], page: 1, pagecount: 0, total: 0 };
-            const redirectUrl = new URL(location, `${hanjuConfig.host}/search/`).toString();
-            const redirectHeaders = { ...hanjuConfig.headers };
-            const cookie = searchRes?.headers?.["set-cookie"] || searchRes?.headers?.["Set-Cookie"];
-            if (cookie) redirectHeaders.Cookie = Array.isArray(cookie) ? cookie.join("; ") : String(cookie);
-            searchRes = await OmniBox.request(redirectUrl, {
-                method: "GET",
-                headers: redirectHeaders,
-                timeout: 15000,
-                gzip: true,
-            });
-        }
-
-        if (Number(searchRes?.statusCode || 200) !== 200) throw new Error(`HTTP ${searchRes?.statusCode || "unknown"}`);
-        const $ = cheerio.load(searchRes.body || "");
-        const items = $("div.txt ul li").filter((_, el) => $(el).attr("id") !== "t").get();
-        const list = await mapWithConcurrency(items, 5, async (el) => {
-            const a = $(el).find("p#name a, a").first();
-            const href = a.attr("href");
-            if (!href) return null;
-            return {
-                vod_id: href,
-                vod_name: a.text().trim().replace(/\(\d+\)$/, ""),
-                vod_pic: await getPicFromDetail(href),
-                vod_remarks: $(el).find("p#actor, #actor").first().text().trim(),
-            };
-        });
-        const filtered = list.filter(Boolean);
-        logInfo(`搜索 "${keyword}" 找到 ${filtered.length} 个结果`);
-        return { list: filtered, page: 1, pagecount: 1, total: filtered.length };
-    } catch (e) {
-        logError("搜索失败", e);
-        return { list: [], page: 1, pagecount: 0, total: 0 };
-    }
-}
-
-async function detail(params) {
-    const videoId = params.videoId;
-
-    try {
-        logInfo(`请求详情 ID: ${videoId}`);
-        const $ = await fetchHtml(hanjuConfig.host + videoId);
-        
-        const episodes = [];
-        $("div.play ul li a").each((_, el) => {
-            const name = $(el).text();
-            const onclick = $(el).attr("onclick") || "";
-            const match = onclick.match(/'(.*?)'/);
-            if (match) {
-                episodes.push({
-                    name: name,
-                    playId: match[1] 
-                });
-            }
-        });
-
-        const vodPlaySources = episodes.length > 0 ? [{
-            name: $("#playlist").text() || "新韩剧线路",
-            episodes: episodes
-        }] : [];
-
-        let pic = $("div.detail div.pic img").attr("data-original") || "";
-        if (pic && !pic.startsWith("http")) pic = "https:" + pic;
-        
-        let vodName = $("div.detail div.info dl:eq(0) dd").text();
-        let vodContent = $("div.juqing").text().trim();
-
-        // ============================================================================
-        // 刮削处理逻辑
-        // ============================================================================
-        let scrapeData = null;
-        let videoMappings = [];
-        let scrapeType = "";
-        const scrapeCandidates = [];
-        
-        for (const source of vodPlaySources) {
-            for (const ep of source.episodes) {
-                const fid = ep.playId;
-                if (!fid) continue;
-                scrapeCandidates.push({
-                    fid: fid,
-                    file_id: fid,
-                    file_name: ep.name || "正片",
-                    name: ep.name || "正片",
-                    format_type: "video"
-                });
-            }
-        }
-
-        if (scrapeCandidates.length > 0) {
-            try {
-                const scrapingResult = await OmniBox.processScraping(videoId, vodName, vodName, scrapeCandidates);
-                logInfo("刮削处理完成", { result: scrapingResult || {} });
-                const metadata = await OmniBox.getScrapeMetadata(videoId);
-                scrapeData = metadata?.scrapeData || null;
-                videoMappings = metadata?.videoMappings || [];
-                scrapeType = metadata?.scrapeType || "";
-                logInfo("刮削元数据读取完成", { hasScrapeData: !!scrapeData, mappingCount: videoMappings.length, scrapeType });
-            } catch (error) {
-                logError("刮削处理失败", error);
-            }
-        }
-
-        for (const source of vodPlaySources) {
-            for (const ep of source.episodes) {
-                const fid = ep.playId;
-                const mapping = videoMappings.find((m) => m?.fileId === fid);
-                
-                let newName = ep.name;
-                let seasonNum = 0;
-                let episodeNum = 0;
-                
-                if (mapping) {
-                    newName = buildScrapedEpisodeName(scrapeData, mapping, ep.name);
-                    seasonNum = mapping.seasonNumber || 0;
-                    episodeNum = mapping.episodeNumber || 0;
-                    if (newName !== ep.name) {
-                        const oldName = ep.name;
-                        ep.name = newName;
-                        logInfo(`应用刮削后源文件名: ${oldName} -> ${newName}`);
-                    }
-                }
-                
-                const meta = { sid: videoId, fid: fid, v: vodName, e: ep.name, s: seasonNum, n: episodeNum };
-                ep.playId = `${fid}|||${encodeMeta(meta)}`;
-            }
-
-            const hasEpisodeNumber = source.episodes.some(ep => {
-                const metaPart = (ep.playId || "").split('|||')[1] || "";
-                const meta = decodeMeta(metaPart);
-                return meta?.n !== undefined && meta?.n !== 0;
-            });
-            
-            if (hasEpisodeNumber) {
-                source.episodes.sort((a, b) => {
-                    const metaA = decodeMeta((a.playId || "").split('|||')[1] || "");
-                    const metaB = decodeMeta((b.playId || "").split('|||')[1] || "");
-                    if (metaA.s !== metaB.s) return metaA.s - metaB.s;
-                    return metaA.n - metaB.n;
-                });
-            }
-        }
-
-        logInfo("详情接口返回数据");
-        return {
-            list: [{
-                vod_id: videoId,
-                vod_name: scrapeData?.title || vodName,
-                vod_pic: scrapeData?.posterPath ? `https://image.tmdb.org/t/p/w500${scrapeData.posterPath}` : pic,
-                vod_play_sources: vodPlaySources,
-                vod_remarks: $("div.detail div.info dl:eq(4) dd").text(),
-                vod_year: $("div.detail div.info dl:eq(5) dd").text(),
-                vod_actor: $("div.detail div.info dl:eq(1) dd").text(),
-                vod_content: scrapeData?.overview || vodContent
-            }]
-        };
-    } catch (e) {
-        logError("详情获取失败", e);
-        return { list: [] };
-    }
-}
-
-async function play(params) {
-    const rawPlayIdParam = params.playId;
-    const vodId = params.vodId || "";
-
-    let playId = rawPlayIdParam;
-    let playMeta = {};
-    let vodName = "";
-    let episodeName = "";
-
-    if (rawPlayIdParam && rawPlayIdParam.includes("|||")) {
-        const parts = rawPlayIdParam.split("|||");
-        playId = parts[0];
-        playMeta = decodeMeta(parts[1] || "");
-        vodName = playMeta.v || "";
-        episodeName = playMeta.e || "";
-    }
-    if (!playId) return { parse: 0, url: "", urls: [], header: {}, headers: {} };
-
-    logInfo(`准备播放 ID: ${playId}`);
-    let scrapedDanmuFileName = "";
-    let scrapeType = "";
-    try {
-        const videoIdForScrape = vodId || (playMeta?.sid ? String(playMeta.sid) : "");
-        if (videoIdForScrape) {
-            const metadata = await OmniBox.getScrapeMetadata(videoIdForScrape);
-            if (metadata?.scrapeData) {
-                const mapping = (metadata.videoMappings || []).find((m) => m?.fileId === playMeta?.fid);
-                if (metadata.scrapeData.title) vodName = metadata.scrapeData.title;
-                if (mapping?.episodeName) episodeName = mapping.episodeName;
-                scrapeType = metadata?.scrapeType || "";
-                scrapedDanmuFileName = buildScrapedDanmuFileName(metadata.scrapeData, scrapeType, mapping, vodName, episodeName);
-            }
-        }
-    } catch (error) {
-        logInfo(`读取刮削元数据失败: ${error.message}`);
-    }
-
-    try {
-        const res = await OmniBox.request(`${hanjuConfig.host}/u/u1.php?ud=${encodeURIComponent(playId)}`, {
-            headers: hanjuConfig.headers,
-            timeout: 15000,
-            gzip: true,
-        });
-        if (Number(res?.statusCode || 200) !== 200) throw new Error(`HTTP ${res?.statusCode || "unknown"}`);
-
-        const key = CryptoJS.enc.Utf8.parse("my-to-newhan-2025\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0");
-        const base64Data = CryptoJS.enc.Base64.parse(String(res.body || "").trim());
-        const iv = CryptoJS.lib.WordArray.create(base64Data.words.slice(0, 4));
-        const ciphertext = CryptoJS.lib.WordArray.create(base64Data.words.slice(4));
-        const decrypted = CryptoJS.AES.decrypt(
-            { ciphertext },
-            key,
-            { iv, mode: CryptoJS.mode.CBC, padding: CryptoJS.pad.Pkcs7 },
-        );
-        const realUrl = decrypted.toString(CryptoJS.enc.Utf8).trim();
-        if (!realUrl) throw new Error("播放地址解密为空");
-
-        let playResponse;
-        if (/\.(?:m3u8|mp4|flv|avi|mkv|ts)(?:$|[?#])/i.test(realUrl)) {
-            playResponse = {
-                parse: 0,
-                jx: 0,
-                url: realUrl,
-                urls: [{ name: "直接播放", url: realUrl }],
-                header: hanjuConfig.headers,
-                headers: hanjuConfig.headers,
-            };
-        } else {
-            let sniffed = null;
-            if (typeof OmniBox.sniffVideo === "function") {
-                try { sniffed = await OmniBox.sniffVideo(realUrl, hanjuConfig.headers); }
-                catch (error) { logInfo(`服务端嗅探失败: ${error.message}`); }
-            }
-            const sniffUrls = normalizeSniffUrls(sniffed);
-            if (sniffUrls.length) {
-                const header = sniffed?.header || sniffed?.headers || hanjuConfig.headers;
-                playResponse = {
-                    parse: 0,
-                    jx: 0,
-                    url: sniffUrls[0].url,
-                    urls: sniffUrls,
-                    header,
-                    headers: header,
-                };
-            } else {
-                playResponse = {
-                    parse: 1,
-                    jx: 1,
-                    url: realUrl,
-                    urls: [{ name: "浏览器嗅探", url: realUrl }],
-                    header: hanjuConfig.headers,
-                    headers: hanjuConfig.headers,
-                };
-            }
-        }
-
-        if (DANMU_API && (vodName || params.vodName)) {
-            const fallbackFileName = buildFileNameForDanmu(vodName || params.vodName || "", episodeName);
-            const danmuFileName = scrapedDanmuFileName || fallbackFileName;
-            const danmakuList = await matchDanmu(danmuFileName);
-            if (danmakuList.length) playResponse.danmaku = danmakuList;
-        }
-        return playResponse;
-    } catch (e) {
-        logError("解析播放失败", e);
-        return { parse: 0, jx: 0, url: "", urls: [], header: {}, headers: {} };
-    }
-}
-
-module.exports = {
-    home,
-    category,
-    search,
-    detail,
-    play
-};
-
-const runner = require("spider_runner");
-runner.run(module.exports);
-
-});
-
-_load(6, "枫叶", function (module, exports, require) {
-// @name 枫叶
-// @author 梦
-// @description 影视站：支持首页、分类、详情、搜索与播放，补齐刮削、弹幕与播放记录，基于 https://www.budaichuchen.net
-// @dependencies cheerio
-// @version 1.2.0
-// @downloadURL https://gh-proxy.org/https://github.com/Silent1566/OmniBox-Spider/raw/refs/heads/main/影视/采集/枫叶.js
-
-const OmniBox = require("omnibox_sdk");
-const runner = require("spider_runner");
-const cheerio = require("cheerio");
-const https = require("https");
-const http = require("http");
-
-const BASE_URL = "https://www.budaichuchen.net";
-const UA = "Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.91 Mobile Safari/537.36";
-const PAGE_LIMIT = 20;
-const LIST_CACHE_TTL = Number(process.env.FENGYE_LIST_CACHE_TTL || 900);
-const DETAIL_CACHE_TTL = Number(process.env.FENGYE_DETAIL_CACHE_TTL || 1800);
-const SEARCH_CACHE_TTL = Number(process.env.FENGYE_SEARCH_CACHE_TTL || 600);
-
-function encodeMeta(meta = {}) {
-  try {
-    return Buffer.from(JSON.stringify(meta), "utf8").toString("base64url");
-  } catch (_) {
-    return "";
-  }
-}
-
-function decodeMeta(encoded = "") {
-  try {
-    if (!encoded) return {};
-    return JSON.parse(Buffer.from(String(encoded), "base64url").toString("utf8"));
-  } catch (_) {
-    return {};
-  }
-}
-
-function buildScrapedEpisodeName(scrapeData, mapping, originalName) {
-  if (!mapping || mapping.episodeNumber === 0 || (mapping.confidence && mapping.confidence < 0.5)) {
-    return originalName;
-  }
-  if (mapping.episodeName) {
-    return `${mapping.episodeNumber}.${mapping.episodeName}`;
-  }
-  if (scrapeData && Array.isArray(scrapeData.episodes)) {
-    const hit = scrapeData.episodes.find(
-      (ep) => ep.episodeNumber === mapping.episodeNumber && ep.seasonNumber === mapping.seasonNumber,
-    );
-    if (hit?.name) {
-      return `${hit.episodeNumber}.${hit.name}`;
-    }
-  }
-  return originalName;
-}
-
-function preprocessTitle(title) {
-  if (!title) return "";
-  return String(title)
-    .replace(/4[kK]|[xX]26[45]|720[pP]|1080[pP]|2160[pP]/g, " ")
-    .replace(/[hH]\.?26[45]/g, " ")
-    .replace(/BluRay|WEB-DL|HDR|REMUX/gi, " ")
-    .replace(/\.mp4|\.mkv|\.avi|\.flv/gi, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function chineseToArabic(cn) {
-  const map = { 零: 0, 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 };
-  if (!isNaN(cn)) return parseInt(cn, 10);
-  if (cn.length === 1) return map[cn] || cn;
-  if (cn.length === 2) {
-    if (cn[0] === "十") return 10 + map[cn[1]];
-    if (cn[1] === "十") return map[cn[0]] * 10;
-  }
-  if (cn.length === 3) return map[cn[0]] * 10 + map[cn[2]];
-  return cn;
-}
-
-function extractEpisode(title) {
-  if (!title) return "";
-  const processed = preprocessTitle(title);
-  const cnMatch = processed.match(/第\s*([零一二三四五六七八九十0-9]+)\s*[集话章节回期]/);
-  if (cnMatch) return String(chineseToArabic(cnMatch[1]));
-  const seMatch = processed.match(/[Ss](?:\d{1,2})?[-._\s]*[Ee](\d{1,3})/i);
-  if (seMatch) return seMatch[1];
-  const epMatch = processed.match(/\b(?:EP|E)[-._\s]*(\d{1,3})\b/i);
-  if (epMatch) return epMatch[1];
-  const bracketMatch = processed.match(/[\[\(【(](\d{1,3})[\]\)】)]/);
-  if (bracketMatch) {
-    const num = bracketMatch[1];
-    if (!["720", "1080", "480"].includes(num)) return num;
-  }
-  return "";
-}
-
-function buildFileNameForDanmu(vodName, episodeTitle) {
-  if (!vodName) return "";
-  if (!episodeTitle || episodeTitle === "正片" || episodeTitle === "播放") return vodName;
-  const digits = extractEpisode(episodeTitle);
-  if (digits) {
-    const epNum = parseInt(digits, 10);
-    if (epNum > 0) {
-      return epNum < 10 ? `${vodName} S01E0${epNum}` : `${vodName} S01E${epNum}`;
-    }
-  }
-  return vodName;
-}
-
-function buildScrapedDanmuFileName(scrapeData, scrapeType, mapping, fallbackVodName, fallbackEpisodeName) {
-  if (!scrapeData) return buildFileNameForDanmu(fallbackVodName, fallbackEpisodeName);
-  if (scrapeType === "movie") {
-    return scrapeData.title || fallbackVodName;
-  }
-  const title = scrapeData.title || fallbackVodName;
-  const seasonAirYear = scrapeData.seasonAirYear || "";
-  const seasonNumber = mapping?.seasonNumber || 1;
-  const episodeNumber = mapping?.episodeNumber || 1;
-  return `${title}.${seasonAirYear}.S${String(seasonNumber).padStart(2, "0")}E${String(episodeNumber).padStart(2, "0")}`;
-}
-
-function buildHistoryEpisode(playId, episodeNumber, episodeName) {
-  if (episodeNumber !== undefined && episodeNumber !== null && episodeNumber !== "") {
-    if (episodeName) return `第${episodeNumber}集 ${episodeName}`;
-    return `第${episodeNumber}集`;
-  }
-  return episodeName || playId || "播放";
-}
-
-const CATEGORY_CONFIG = [
-  { id: "1", name: "电影" },
-  { id: "2", name: "电视剧" },
-  { id: "3", name: "综艺" },
-  { id: "4", name: "动漫" },
-  { id: "5", name: "短剧" },
-];
-
-module.exports = { home, category, detail, search, play };
-runner.run(module.exports);
-
-async function requestText(url, options = {}, redirectCount = 0) {
-  await OmniBox.log("info", `[枫叶][request] ${options.method || "GET"} ${url}`);
-  const res = await OmniBox.request(url, {
-    method: options.method || "GET",
-    headers: {
-      "User-Agent": UA,
-      Referer: BASE_URL + "/",
-      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-      "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-      ...(options.headers || {}),
-    },
-    body: options.body,
-    timeout: options.timeout || 20000,
-  });
-  const statusCode = Number(res?.statusCode || 0);
-  if ([301, 302, 303, 307, 308].includes(statusCode) && redirectCount < 5) {
-    const location = res?.headers?.location || res?.headers?.Location || res?.headers?.LOCATION;
-    if (location) return requestText(absoluteUrl(location), options, redirectCount + 1);
-  }
-  if (!res || statusCode !== 200) {
-    throw new Error(`HTTP ${res?.statusCode || "unknown"} @ ${url}`);
-  }
-  return String(res.body || "");
-}
-
-async function requestTextNative(url, options = {}) {
-  await OmniBox.log("info", `[枫叶][native-request] ${options.method || "GET"} ${url}`);
-  return new Promise((resolve, reject) => {
-    const requestUrl = new URL(url);
-    const body = options.body == null ? "" : String(options.body);
-    const headers = {
-      "User-Agent": UA,
-      Referer: BASE_URL + "/",
-      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-      "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-      ...(options.headers || {}),
-    };
-    if (body && headers["Content-Length"] == null && headers["content-length"] == null) {
-      headers["Content-Length"] = Buffer.byteLength(body);
-    }
-    const transport = requestUrl.protocol === "http:" ? http : https;
-    const req = transport.request({
-      protocol: requestUrl.protocol,
-      hostname: requestUrl.hostname,
-      port: requestUrl.port || (requestUrl.protocol === "http:" ? 80 : 443),
-      path: `${requestUrl.pathname}${requestUrl.search}`,
-      method: options.method || "GET",
-      headers,
-      timeout: options.timeout || 20000,
-    }, (res) => {
-      let data = "";
-      res.setEncoding("utf8");
-      res.on("data", (chunk) => {
-        data += chunk;
-      });
-      res.on("end", () => {
-        const statusCode = Number(res.statusCode || 0);
-        if (statusCode !== 200) {
-          reject(new Error(`HTTP ${statusCode} @ ${url}`));
-          return;
-        }
-        resolve(String(data || ""));
-      });
-    });
-    req.on("timeout", () => {
-      req.destroy(new Error(`timeout @ ${url}`));
-    });
-    req.on("error", reject);
-    if (body) req.write(body);
-    req.end();
-  });
-}
-
-async function getCachedText(cacheKey, ttl, producer) {
-  try {
-    const cached = await OmniBox.getCache(cacheKey);
-    if (cached) return String(cached);
-  } catch (_) {}
-  const value = String(await producer());
-  try {
-    await OmniBox.setCache(cacheKey, value, ttl);
-  } catch (_) {}
-  return value;
-}
-
-function absoluteUrl(url) {
-  try {
-    return new URL(String(url || ""), BASE_URL).toString();
-  } catch (_) {
-    return String(url || "");
-  }
-}
-
-function normalizeText(value) {
-  return String(value || "").replace(/\s+/g, " ").trim();
-}
-
-function categoryNameById(categoryId) {
-  return CATEGORY_CONFIG.find((item) => item.id === String(categoryId))?.name || "影视";
-}
-
-function extractVodId(href) {
-  const match = String(href || "").match(/detail\/(.*?)\.html/i);
-  return match?.[1] || "";
-}
-
-function extractPlayId(href) {
-  const match = String(href || "").match(/play\/(.*?)\.html/i);
-  return match?.[1] || "";
-}
-
-function buildVodCard($, el) {
-  const box = $(el);
-  const a = box.find(".public-list-exp").first();
-  const href = a.attr("href") || "";
-  const vodId = extractVodId(href);
-  if (!vodId) return null;
-  const pic = box.find("img").first().attr("data-src") || box.find("img").first().attr("src") || "";
-  return {
-    vod_id: vodId,
-    vod_name: normalizeText(a.attr("title") || ""),
-    vod_pic: absoluteUrl(pic),
-    vod_remarks: normalizeText(box.find(".public-list-prb").first().text()),
-  };
-}
-
-function parseHomeList(htmlText) {
-  const $ = cheerio.load(htmlText);
-  const list = [];
-  const seen = new Set();
-  $(".public-list-box").each((_, el) => {
-    const item = buildVodCard($, el);
-    if (!item?.vod_id || seen.has(item.vod_id)) return;
-    seen.add(item.vod_id);
-    list.push(item);
-  });
-  return list;
-}
-
-function parseSearchList(htmlText) {
-  const $ = cheerio.load(htmlText);
-  const list = [];
-  const seen = new Set();
-  $(".search-box").each((_, el) => {
-    const box = $(el);
-    const a = box.find(".public-list-exp").first();
-    const href = a.attr("href") || "";
-    const vodId = extractVodId(href);
-    if (!vodId || seen.has(vodId)) return;
-    seen.add(vodId);
-    const pic = a.find("img").first().attr("data-src") || a.find("img").first().attr("src") || "";
-    list.push({
-      vod_id: vodId,
-      vod_name: normalizeText(box.find(".thumb-txt a").first().text()),
-      vod_pic: absoluteUrl(pic),
-      vod_remarks: normalizeText(a.find(".public-list-prb").first().text()),
-    });
-  });
-  return list;
-}
-
-function parseDetail(htmlText, videoId) {
-  const $ = cheerio.load(htmlText);
-  const vodName = normalizeText($(".slide-info-title").first().text());
-  const vodPic = absoluteUrl($(".detail-pic img").first().attr("data-src") || $(".detail-pic img").first().attr("src") || "");
-  const vodContent = normalizeText($("#height_limit").first().text());
-
-  const sourceNames = [];
-  $(".anthology-tab a").each((_, el) => {
-    const name = normalizeText($(el).text()).replace(/\s/g, "").replace(/\(\d+\)/g, "");
-    if (name) sourceNames.push(name);
-  });
-
-  const playSources = [];
-  $(".anthology-list-box").each((idx, el) => {
-    const lineName = sourceNames[idx] || `线路${idx + 1}`;
-    const episodes = [];
-    $(el).find("ul li a").each((epIdx, a) => {
-      const name = normalizeText($(a).text()) || `第${epIdx + 1}集`;
-      const rawPlayId = extractPlayId($(a).attr("href") || "");
-      if (!rawPlayId) return;
-      const fid = `${videoId}#${lineName}#${epIdx}`;
-      const meta = {
-        sid: String(videoId || ""),
-        fid,
-        v: vodName || "",
-        e: name,
-        t: lineName,
-        i: epIdx,
-      };
-      episodes.push({ name, playId: `${rawPlayId}|||${encodeMeta(meta)}`, _fid: fid, _rawName: name });
-    });
-    episodes.reverse();
-    if (episodes.length) {
-      playSources.push({ name: lineName, episodes });
-    }
-  });
-
-  if (!playSources.length) {
-    const episodes = [];
-    $(".anthology-list-play a").each((epIdx, a) => {
-      const name = normalizeText($(a).attr("title") || $(a).text()) || `第${epIdx + 1}集`;
-      const rawPlayId = extractPlayId($(a).attr("href") || "");
-      if (!rawPlayId) return;
-      const fid = `${videoId}#播放列表#${epIdx}`;
-      const meta = {
-        sid: String(videoId || ""),
-        fid,
-        v: vodName || "",
-        e: name,
-        t: "播放列表",
-        i: epIdx,
-      };
-      episodes.push({ name, playId: `${rawPlayId}|||${encodeMeta(meta)}`, _fid: fid, _rawName: name });
-    });
-    if (episodes.length) {
-      playSources.push({ name: "播放列表", episodes });
-    }
-  }
-
-  const normalizedPlaySources = playSources.map((source) => ({
-    name: source.name,
-    episodes: (source.episodes || []).map((ep) => ({ name: ep.name, playId: ep.playId })),
-  }));
-
-  return {
-    list: [{
-      vod_id: String(videoId || ""),
-      vod_name: vodName,
-      vod_pic: vodPic,
-      vod_content: vodContent,
-      vod_play_sources: normalizedPlaySources,
-    }],
-    _play_sources_for_scrape: playSources,
-  };
-}
-
-async function parsePlayPage(playUrl, html) {
-  try {
-    const playerMatch = html.match(/player_.*?=([^]*?)</);
-    if (playerMatch?.[1]) {
-      try {
-        const config = JSON.parse(playerMatch[1]);
-        const rawUrl = String(config.url || "");
-        const from = String(config.from || "").toUpperCase();
-
-        if (rawUrl.startsWith("http") && (rawUrl.includes(".m3u8") || rawUrl.includes(".mp4"))) {
-          await OmniBox.log("info", `[枫叶][play] player config direct url=${rawUrl}`);
-          return rawUrl;
-        }
-
-        if (from.includes("JD") || rawUrl.startsWith("JD-")) {
-          const jxHost = "https://fgsrg.hzqingshan.com";
-          const playPageUrl = `${jxHost}/player/?url=${encodeURIComponent(rawUrl)}`;
-          const playPageHtml = await requestTextNative(playPageUrl, {
-            headers: {
-              Referer: playUrl,
-              Origin: BASE_URL,
-            },
-          });
-          const tokenMatch = playPageHtml.match(/data-te="([^"]+)"/);
-          const token = tokenMatch?.[1] || "";
-          if (token) {
-            const params = new URLSearchParams();
-            params.set("url", rawUrl);
-            params.set("token", token);
-            const apiRaw = await requestTextNative(`${jxHost}/player/mplayer.php`, {
-              method: "POST",
-              headers: {
-                Accept: "application/json, text/javascript, */*; q=0.01",
-                "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-                "X-Requested-With": "XMLHttpRequest",
-                Origin: jxHost,
-                Referer: playPageUrl,
-              },
-              body: params.toString(),
-            });
-            const apiJson = JSON.parse(apiRaw || "{}");
-            if (Number(apiJson.code) === 200 && apiJson.url) {
-              await OmniBox.log("info", `[枫叶][play] JD parse success url=${apiJson.url}`);
-              return String(apiJson.url);
-            }
-          }
-        }
-      } catch (e) {
-        await OmniBox.log("warn", `[枫叶][play] parse player config failed: ${e.message}`);
-      }
-    }
-
-    const m3u8Patterns = [
-      /['"]((?:https?:)?\/\/[^'"]+\.m3u8[^'"]*)['"]/gi,
-      /var\s+url\s*=\s*['"]([^'"]+)['"]/i,
-      /url\s*:\s*['"]([^'"]+\.m3u8[^'"]*)['"]/i,
-    ];
-
-    for (const pattern of m3u8Patterns) {
-      const matches = html.match(pattern);
-      if (!matches) continue;
-      for (const match of matches) {
-        const urlMatch = match.match(/['"]?(https?:\/\/[^'"]+\.(?:m3u8|mp4)[^'"]*)['"]?/i);
-        if (urlMatch?.[1]) {
-          let realUrl = urlMatch[1];
-          if (realUrl.startsWith("//")) realUrl = `https:${realUrl}`;
-          await OmniBox.log("info", `[枫叶][play] regex found url=${realUrl}`);
-          return realUrl;
-        }
-      }
-    }
-    return "";
-  } catch (error) {
-    await OmniBox.log("warn", `[枫叶][play] parse play page failed: ${error.message}`);
-    return "";
-  }
-}
-
-async function home() {
-  try {
-    const html = await getCachedText("fengye:home", LIST_CACHE_TTL, () => requestText(`${BASE_URL}/`));
-    const list = parseHomeList(html).slice(0, 40);
-    await OmniBox.log("info", `[枫叶][home] list=${list.length}`);
-    return {
-      class: CATEGORY_CONFIG.map((item) => ({ type_id: item.id, type_name: item.name })),
-      list,
-    };
-  } catch (e) {
-    await OmniBox.log("error", `[枫叶][home] ${e.message}`);
-    return { class: CATEGORY_CONFIG.map((item) => ({ type_id: item.id, type_name: item.name })), list: [] };
-  }
-}
-
-async function category(params = {}) {
-  try {
-    const categoryId = String(params.categoryId || params.type_id || params.id || "1");
-    const page = Math.max(1, Number(params.page) || 1);
-    const extend = params.extend || params.filters || {};
-    const area = String(extend.area || "");
-    const by = String(extend.by || "time");
-    const clazz = String(extend.class || "");
-    const year = String(extend.year || "");
-    const lang = String(extend.lang || "");
-    const letter = String(extend.letter || "");
-    const url = `${BASE_URL}/index.php/ajax/data?mid=1&tid=${encodeURIComponent(categoryId)}&page=${page}&limit=20${area ? `&area=${encodeURIComponent(area)}` : ""}${by !== "time" ? `&by=${encodeURIComponent(by)}` : ""}${clazz ? `&class=${encodeURIComponent(clazz)}` : ""}${year ? `&year=${encodeURIComponent(year)}` : ""}${lang ? `&lang=${encodeURIComponent(lang)}` : ""}`;
-    const html = await requestText(url);
-    const list = parseData(html);
-    await OmniBox.log("info", `[枫叶][category] category=${categoryId} page=${page} count=${list.length}`);
-    return {
-      page,
-      pagecount: list.length >= PAGE_LIMIT ? page + 1 : page,
-      total: page * list.length + (list.length ? 1 : 0),
-      list: list.map((item) => ({ ...item, type_name: categoryNameById(categoryId) })),
-    };
-  } catch (e) {
-    await OmniBox.log("error", `[枫叶][category] ${e.message}`);
-    return { page: Number(params.page) || 1, pagecount: Number(params.page) || 1, total: 0, list: [] };
-  }
-}
-
-async function search(params = {}) {
-  try {
-    const wd = normalizeText(params.wd || params.keyword || params.key || "");
-    const page = Math.max(1, Number(params.page) || 1);
-    if (!wd) return { list: [] };
-    const url = `${BASE_URL}/index.php/ajax/suggest?mid=1&wd=${encodeURIComponent(wd)}&limit=30`;
-    const html = await requestText(url);
-    const list = parseSuggest(html);
-    await OmniBox.log("info", `[枫叶][search] wd=${wd} page=${page} count=${list.length}`);
-    return {
-      page,
-      pagecount: list.length >= PAGE_LIMIT ? page + 1 : page,
-      total: list.length,
-      list,
-    };
-  } catch (e) {
-    await OmniBox.log("warn", `[枫叶][search] ${e.message}`);
-    return { page: Number(params.page) || 1, pagecount: Number(params.page) || 1, total: 0, list: [] };
-  }
-}
-
-async function detail(params = {}) {
-  try {
-    const videoId = String(params.videoId || params.id || params.vod_id || "");
-    if (!videoId) return { list: [] };
-    const url = `${BASE_URL}/detail/${videoId}.html`;
-    const html = await getCachedText(`fengye:detail:${videoId}`, DETAIL_CACHE_TTL, () => requestText(url));
-    const result = parseDetail(html, videoId);
-    const vod = result.list?.[0];
-    const scrapePlaySources = Array.isArray(result._play_sources_for_scrape) ? result._play_sources_for_scrape : vod?.vod_play_sources || [];
-
-    if (vod && Array.isArray(scrapePlaySources) && scrapePlaySources.length > 0 && typeof OmniBox.processScraping === "function" && typeof OmniBox.getScrapeMetadata === "function") {
-      let scrapeData = null;
-      let videoMappings = [];
-      let scrapeType = "";
-      const scrapeCandidates = [];
-
-      for (const source of scrapePlaySources) {
-        for (const ep of source.episodes || []) {
-          const fid = ep._fid || decodeMeta(String(ep.playId || "").split("|||")[1] || "")?.fid || ep.playId;
-          if (!fid) continue;
-          scrapeCandidates.push({
-            fid,
-            file_id: fid,
-            file_name: ep._rawName || ep.name || "正片",
-            name: ep._rawName || ep.name || "正片",
-            format_type: "video",
-          });
-        }
-      }
-
-      await OmniBox.log("info", `[枫叶][detail] 刮削候选 videoId=${videoId} count=${scrapeCandidates.length} preview=${scrapeCandidates.slice(0, 3).map((item) => `${item.fid}=>${item.file_name}`).join(" | ")}`);
-      if (scrapeCandidates.length > 0) {
-        try {
-          const scrapeKeyword = normalizeText(vod.vod_name || "");
-          const scrapingResult = await OmniBox.processScraping(videoId, scrapeKeyword, scrapeKeyword, scrapeCandidates);
-          await OmniBox.log("info", `[枫叶][detail] 刮削完成 videoId=${videoId} keyword=${scrapeKeyword} result=${JSON.stringify(scrapingResult || {}).slice(0, 200)}`);
-          const metadata = await OmniBox.getScrapeMetadata(videoId);
-          scrapeData = metadata?.scrapeData || null;
-          videoMappings = Array.isArray(metadata?.videoMappings) ? metadata.videoMappings : [];
-          scrapeType = metadata?.scrapeType || "";
-          await OmniBox.log("info", `[枫叶][detail] 刮削元数据 videoId=${videoId} hasScrapeData=${!!scrapeData} mappings=${videoMappings.length} scrapeType=${scrapeType}`);
-        } catch (error) {
-          await OmniBox.log("warn", `[枫叶][detail] 刮削失败 videoId=${videoId}: ${error.message}`);
-        }
-      }
-
-      if (scrapeData) {
-        vod.vod_name = scrapeData.title || vod.vod_name;
-        if (scrapeData.posterPath) {
-          vod.vod_pic = `https://image.tmdb.org/t/p/w500${scrapeData.posterPath}`;
-        }
-        if (scrapeData.overview) {
-          vod.vod_content = scrapeData.overview;
-        }
-      }
-
-      for (const source of vod.vod_play_sources || []) {
-        for (const ep of source.episodes || []) {
-          const parts = String(ep.playId || "").split("|||");
-          const meta = decodeMeta(parts[1] || "");
-          const fid = meta?.fid;
-          if (!fid) continue;
-          const mapping = videoMappings.find((item) => item?.fileId === fid);
-          if (!mapping) continue;
-          const oldName = ep.name;
-          const newName = buildScrapedEpisodeName(scrapeData, mapping, oldName);
-          if (newName && newName !== oldName) {
-            ep.name = newName;
-            await OmniBox.log("info", `[枫叶][detail] 应用刮削分集名 ${oldName} -> ${newName}`);
-          }
-          meta.e = ep.name;
-          meta.s = mapping.seasonNumber;
-          meta.n = mapping.episodeNumber;
-          ep.playId = `${parts[0]}|||${encodeMeta(meta)}`;
-        }
-      }
-    }
-
-    await OmniBox.log("info", `[枫叶][detail] id=${videoId} sources=${result.list?.[0]?.vod_play_sources?.length || 0}`);
-    return result;
-  } catch (e) {
-    await OmniBox.log("error", `[枫叶][detail] ${e.message}`);
-    return { list: [] };
-  }
-}
-
-async function play(params = {}, context = {}) {
-  try {
-    let rawPlayId = String(params.id || params.playId || "");
-    let playMeta = {};
-    let vodName = "";
-    let episodeName = "";
-
-    if (rawPlayId.includes("|||")) {
-      const [mainPlayId, metaB64] = rawPlayId.split("|||");
-      rawPlayId = mainPlayId;
-      playMeta = decodeMeta(metaB64 || "");
-      vodName = playMeta.v || "";
-      episodeName = playMeta.e || "";
-      await OmniBox.log("info", `[枫叶][play] 解析透传信息 vod=${vodName} episode=${episodeName} fid=${playMeta.fid || ""}`);
-    }
-
-    const playId = String(rawPlayId || "");
-    if (!playId) return { parse: 1, url: "", urls: [], header: {} };
-    const playUrl = `${BASE_URL}/play/${playId}.html`;
-
-    const playInfoPromise = (async () => {
-      const html = await requestText(playUrl);
-      const realVideoUrl = await parsePlayPage(playUrl, html);
-      const finalHeaders = {
-        "User-Agent": UA,
-        Referer: `${BASE_URL}/`,
-        Origin: BASE_URL,
-      };
-
-      if (realVideoUrl) {
-        await OmniBox.log("info", `[枫叶][play] direct success playId=${playId} url=${realVideoUrl}`);
-        return {
-          parse: 0,
-          url: realVideoUrl,
-          urls: [{ name: "播放", url: realVideoUrl }],
-          header: finalHeaders,
-          headers: finalHeaders,
-          danmaku: []};
-      }
-
-      await OmniBox.log("warn", `[枫叶][play] fallback parse=1 playId=${playId}`);
+    if (payload.directUrl) {
+      const directUrl = String(payload.directUrl || "").trim();
+      const sniff = !/\.(m3u8|mp4|flv)(\?|$)/i.test(directUrl);
+      await OmniBox.log("info", `[play] direct source=${payload.source} sniff=${sniff} url=${directUrl}`);
       return {
-        parse: 1,
-        url: playUrl,
-        urls: [{ name: "播放页", url: playUrl }],
-        header: finalHeaders,
-        headers: finalHeaders,
-        danmaku: []};
-    })();
+        urls: [{ name: payload.source || "播放", url: directUrl }],
+        header: {},
+        parse: sniff ? 1 : 0};
+    }
 
-    const metadataPromise = (async () => {
-      const result = {
-        danmakuList: [],
-        scrapeTitle: "",
-        scrapePic: "",
-        episodeNumber: playMeta?.n ?? null,
-        episodeName: episodeName || "",
-        scrapeType: "",
-        mapping: null,
+    if (payload.sniffUrl) {
+      const sniffHeaders = {
+        Referer: payload.referer || BASE_URL + "/",
+        "User-Agent": USER_AGENT,
       };
-
-      const videoIdForScrape = String(playMeta?.sid || params.videoId || params.vod_id || "");
-      if (!videoIdForScrape || typeof OmniBox.getScrapeMetadata !== "function") {
-        await OmniBox.log("info", `[枫叶][play] 播放增强链路跳过 videoId=${videoIdForScrape || ""}`);
-        return result;
-      }
-
+      await OmniBox.log("info", `[play] sdk sniff source=${payload.source} sniffUrl=${payload.sniffUrl}`);
       try {
-        const metadata = await OmniBox.getScrapeMetadata(videoIdForScrape);
-        if (!metadata || !metadata.scrapeData) {
-          await OmniBox.log("info", `[枫叶][play] 播放增强链路跳过: metadata 不完整 videoId=${videoIdForScrape}`);
-          return result;
+        const sniffed = await OmniBox.sniffVideo(payload.sniffUrl, sniffHeaders);
+        const sniffedUrl = String(sniffed?.url || "").trim();
+        if (sniffedUrl) {
+          await OmniBox.log("info", `[play] sdk sniff success url=${sniffedUrl}`);
+          return {
+            urls: [{ name: payload.source || "播放", url: sniffedUrl }],
+            header: sniffed?.header || {},
+            parse: 0};
         }
-
-        result.scrapeTitle = metadata.scrapeData.title || "";
-        if (metadata.scrapeData.posterPath) {
-          result.scrapePic = `https://image.tmdb.org/t/p/w500${metadata.scrapeData.posterPath}`;
-        }
-        result.scrapeType = metadata.scrapeType || "";
-
-        const mappings = Array.isArray(metadata.videoMappings) ? metadata.videoMappings : [];
-        await OmniBox.log("info", `[枫叶][play] 读取刮削元数据成功 videoId=${videoIdForScrape} mappings=${mappings.length} scrapeType=${result.scrapeType || "unknown"}`);
-        const mapping = mappings.find((item) => item?.fileId === playMeta?.fid);
-        result.mapping = mapping || null;
-        if (mapping) {
-          if (mapping.episodeName) {
-            result.episodeName = buildScrapedEpisodeName(metadata.scrapeData, mapping, result.episodeName || episodeName || "");
-          }
-          if (mapping.episodeNumber !== undefined && mapping.episodeNumber !== null) {
-            result.episodeNumber = mapping.episodeNumber;
-          }
-        } else if (mappings.length > 0) {
-          await OmniBox.log("info", `[枫叶][play] 播放增强链路未命中 mapping fid=${playMeta?.fid || ""}`);
-        }
-
-        vodName = result.scrapeTitle || vodName;
-        episodeName = result.episodeName || episodeName;
-        const fileName = buildScrapedDanmuFileName(metadata.scrapeData, result.scrapeType, mapping, vodName, episodeName);
-        if (fileName && typeof OmniBox.getDanmakuByFileName === "function") {
-          const matchedDanmaku = await OmniBox.getDanmakuByFileName(fileName);
-          const count = Array.isArray(matchedDanmaku) ? matchedDanmaku.length : 0;
-          await OmniBox.log("info", `[枫叶][play] 弹幕匹配结果 fileName=${fileName} count=${count}`);
-          if (count > 0) {
-            result.danmakuList = matchedDanmaku;
-          }
-        }
-      } catch (error) {
-        await OmniBox.log("warn", `[枫叶][play] 读取刮削元数据失败: ${error.message}`);
+      } catch (sniffError) {
+        await OmniBox.log("warn", `[play] sdk sniff failed: ${sniffError.message}`);
       }
 
-      return result;
-    })();
-
-    const [playInfoResult, metadataResult] = await Promise.allSettled([playInfoPromise, metadataPromise]);
-    if (playInfoResult.status !== "fulfilled") {
-      throw playInfoResult.reason || new Error("播放主链路失败");
+      return {
+        urls: [{ name: payload.source || "播放", url: payload.sniffUrl }],
+        header: sniffHeaders,
+        parse: 1};
     }
 
-    const playResult = playInfoResult.value || { urls: [], parse: 0, header: {}, danmaku: [] };
-    let danmakuList = [];
-    let scrapeTitle = "";
-    let scrapePic = "";
-    let episodeNumber = playMeta?.n ?? null;
-    if (metadataResult.status === "fulfilled" && metadataResult.value) {
-      danmakuList = metadataResult.value.danmakuList || [];
-      scrapeTitle = metadataResult.value.scrapeTitle || "";
-      scrapePic = metadataResult.value.scrapePic || "";
-      if (metadataResult.value.episodeNumber !== undefined && metadataResult.value.episodeNumber !== null) {
-        episodeNumber = metadataResult.value.episodeNumber;
-      }
-      episodeName = metadataResult.value.episodeName || episodeName;
-      vodName = scrapeTitle || vodName;
-    } else if (metadataResult.status === "rejected") {
-      await OmniBox.log("warn", `[枫叶][play] 播放增强链路失败(不影响播放): ${metadataResult.reason?.message || metadataResult.reason}`);
+    if (!payload.playUrl) throw new Error("缺少 playUrl");
+
+    await OmniBox.log("info", `[play] source=${payload.source} playUrl=${payload.playUrl}`);
+    const html = await request(payload.playUrl, {
+      headers: {
+        Referer: payload.referer || BASE_URL + "/",
+      },
+    });
+
+    const match = html.match(/var\s+player_aaaa\s*=\s*(\{.*?\})\s*<\/script>/s);
+    if (!match) throw new Error("未找到 player_aaaa");
+
+    const player = JSON.parse(match[1]);
+    const encrypt = Number(player.encrypt || 0);
+    const finalUrl = decodePlayerUrl(player.url || "", encrypt);
+
+    if (!finalUrl) throw new Error("播放器未给出 url");
+
+    const isDirectMedia = /\.(m3u8|mp4|flv)(\?|$)/i.test(finalUrl);
+    const finalHeaders = {};
+    if (player.from && !isDirectMedia) {
+      finalHeaders.Referer = payload.playUrl;
+      finalHeaders["User-Agent"] = USER_AGENT;
     }
 
-    playResult.danmaku = danmakuList.length > 0 ? danmakuList : (playResult.danmaku || []);
+    await OmniBox.log("info", `[play] from=${player.from} encrypt=${encrypt} direct=${isDirectMedia} sniff=${!isDirectMedia} url=${finalUrl}`);
 
-    const videoIdForScrape = String(playMeta?.sid || params.videoId || params.vod_id || "");
-    if (videoIdForScrape && context?.sourceId && typeof OmniBox.addPlayHistory === "function") {
-      const historyPayload = {
-        vodId: videoIdForScrape,
-        title: scrapeTitle || vodName || playMeta.v || "枫叶视频",
-        pic: scrapePic || "",
-        episode: buildHistoryEpisode(playId, episodeNumber, episodeName),
-        sourceId: context.sourceId,
-        episodeNumber,
-        episodeName: episodeName || "",
-      };
-      OmniBox.addPlayHistory(historyPayload)
-        .then((added) => {
-          if (added) {
-            OmniBox.log("info", `[枫叶][play] 已添加播放记录: ${historyPayload.title}`);
-          } else {
-            OmniBox.log("info", `[枫叶][play] 播放记录已存在，跳过添加: ${historyPayload.title}`);
-          }
-        })
-        .catch((error) => {
-          OmniBox.log("warn", `[枫叶][play] 添加播放记录失败: ${error.message}`);
+    if (!isDirectMedia) {
+      try {
+        const sniffed = await OmniBox.sniffVideo(payload.playUrl, {
+          Referer: payload.referer || BASE_URL + "/",
+          "User-Agent": USER_AGENT,
         });
+        const sniffedUrl = String(sniffed?.url || "").trim();
+        if (sniffedUrl) {
+          await OmniBox.log("info", `[play] sdk sniff success from player page url=${sniffedUrl}`);
+          return {
+            urls: [{ name: payload.source || player.from || "播放", url: sniffedUrl }],
+            header: sniffed?.header || {},
+            parse: 0};
+        }
+      } catch (sniffError) {
+        await OmniBox.log("warn", `[play] sdk sniff from player page failed: ${sniffError.message}`);
+      }
+
+      return {
+        urls: [{ name: payload.source || player.from || "播放", url: payload.playUrl }],
+        header: {
+          Referer: payload.referer || BASE_URL + "/",
+          "User-Agent": USER_AGENT
+        },
+        parse: 1};
     }
 
-    return playResult;
-  } catch (e) {
-    await OmniBox.log("error", `[枫叶][play] ${e.message}`);
-    return { parse: 1, url: "", urls: [], header: {}, danmaku: [] };
+    return {
+      urls: [{ name: payload.source || player.from || "播放", url: finalUrl }],
+      header: finalHeaders,
+      parse: 0};
+  } catch (error) {
+    await OmniBox.log("error", `[play] ${error.message}`);
+    return {
+      urls: [],
+      header: {},
+      parse: 0};
   }
-}
-
-
-function parseData(htmlText) {
-  try {
-    const data = JSON.parse(htmlText);
-    const arr = data && Array.isArray(data.list) ? data.list : [];
-    return arr
-      .map(function (it) {
-        return {
-          vod_id: String(it.vod_id),
-          vod_name: normalizeText(it.vod_name || ''),
-          vod_pic: fixPic(it.vod_pic || ''),
-          vod_remarks: normalizeText(it.vod_remarks || ''),
-        };
-      })
-      .filter(function (it) { return !!it.vod_id; });
-  } catch (e) {
-    return [];
-  }
-}
-
-function parseSuggest(htmlText) {
-  try {
-    const data = JSON.parse(htmlText);
-    const arr = data && Array.isArray(data.list) ? data.list : [];
-    return arr
-      .map(function (it) {
-        return {
-          vod_id: String(it.id),
-          vod_name: normalizeText(it.name || ''),
-          vod_pic: fixPic(it.pic || ''),
-          vod_remarks: normalizeText(it.remarks || ''),
-        };
-      })
-      .filter(function (it) { return !!it.vod_id; });
-  } catch (e) {
-    return [];
-  }
-}
-function fixPic(u) {
-  if (!u) return "";
-  u = String(u).replace(/&amp;/g, "&");
-  if (u.indexOf("//") === 0) return "https:" + u;
-  if (u.indexOf("/") === 0) return absoluteUrl(u);
-  return u;
 }
 
 });
 
-_load(7, "爱奇艺资源站", function (module, exports, require) {
-// @name 爱奇艺资源站(MacCMS API)-增强版
-// @author OpenClaw Bingbu + 梦
-// @description 刮削：支持，弹幕：支持，嗅探：支持，观看记录：支持，广告：菠菜
-// @dependencies: axios
-// @version 1.1.1
-// @downloadURL https://gh-proxy.org/https://github.com/Silent1566/OmniBox-Spider/raw/refs/heads/main/影视/采集/爱奇艺资源站.js
+_load(3, "PPnix", function (module, exports, require) {
+// @name PPnix
+// @author 梦
+// @description 刮削：暂不支持，弹幕：暂不支持，分类筛选：支持，播放链：兼容 TVBox，优先返回已重写的内联 m3u8 以规避代理链路问题
+// @dependencies: axios, cheerio
+// @version 1.7.4
+// @downloadURL https://gh-proxy.org/https://github.com/Silent1566/OmniBox-Spider/raw/refs/heads/main/影视/采集/PPnix.js
 
-/**
- * ============================================================================
- * 爱奇艺资源站 OmniBox 站源（增强版）
- * 站点: https://iqiyizyapi.com
- * 接口: /api.php/provide/vod
- *
- * 新增能力：
- * - 支持 TMDB 刮削（detail 阶段触发 processScraping）
- * - 支持弹幕匹配（play 阶段通过 getDanmakuByFileName 获取）
- * - 支持观看记录（play 阶段 addPlayHistory）
- * - 保留原有：一级主类聚合、二级筛选、分类屏蔽、嗅探兼容
- *
- * 分类屏蔽配置：
- * - 环境变量 IQIYIZY_BLOCKED_MAIN
- * - 例："39" 或 "39,9"（按一级分类ID）
- * ============================================================================
- */
-
-const axios = require("axios");
 const OmniBox = require("omnibox_sdk");
+const cheerio = require("cheerio");
+const axios = require("axios");
 const runner = require("spider_runner");
+const { execFile } = require("child_process");
+const { promisify } = require("util");
 
-const HOST = "https://iqiyizy.cc";
-const API = `${HOST}/api.php/provide/vod`;
-const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36";
+const BASE_URL = process.env.PPNIX_HOST || "https://www.ppnix.com";
+const BASE_PATH = process.env.PPNIX_LANG_PATH || "/cn";
+const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36";
 
-const MAIN_CATEGORIES = [
-  { type_id: "7", type_name: "电影" },
-  { type_id: "8", type_name: "连续剧" },
-  { type_id: "9", type_name: "综艺" },
-  { type_id: "40", type_name: "动漫" },
-  { type_id: "39", type_name: "伦理片" }
+const CATEGORIES = [
+  { type_id: "movie", type_name: "电影" },
+  { type_id: "tv", type_name: "电视剧" },
 ];
 
-const MAIN_CHILDREN_FALLBACK = {
-  "7": [
-    { type_id: "5", type_name: "动漫电影" },
-    { type_id: "10", type_name: "动作片" },
-    { type_id: "11", type_name: "喜剧片" },
-    { type_id: "12", type_name: "爱情片" },
-    { type_id: "13", type_name: "科幻片" },
-    { type_id: "14", type_name: "恐怖片" },
-    { type_id: "15", type_name: "剧情片" },
-    { type_id: "16", type_name: "战争片" },
-    { type_id: "17", type_name: "惊悚片" },
-    { type_id: "18", type_name: "家庭片" },
-    { type_id: "19", type_name: "古装片" },
-    { type_id: "20", type_name: "历史片" },
-    { type_id: "21", type_name: "悬疑片" },
-    { type_id: "22", type_name: "犯罪片" },
-    { type_id: "23", type_name: "灾难片" },
-    { type_id: "24", type_name: "记录片" },
-    { type_id: "25", type_name: "短片" }
-  ],
-  "8": [
-    { type_id: "26", type_name: "国产剧" },
-    { type_id: "27", type_name: "香港剧" },
-    { type_id: "28", type_name: "韩国剧" },
-    { type_id: "29", type_name: "欧美剧" },
-    { type_id: "30", type_name: "台湾剧" },
-    { type_id: "31", type_name: "日本剧" },
-    { type_id: "32", type_name: "海外剧" },
-    { type_id: "33", type_name: "泰国剧" },
-    { type_id: "38", type_name: "短剧" }
-  ],
-  "9": [
-    { type_id: "34", type_name: "大陆综艺" },
-    { type_id: "35", type_name: "港台综艺" },
-    { type_id: "36", type_name: "日韩综艺" },
-    { type_id: "37", type_name: "欧美综艺" }
-  ],
-  "40": [
-    { type_id: "1", type_name: "国产动漫" },
-    { type_id: "2", type_name: "日韩动漫" },
-    { type_id: "3", type_name: "欧美动漫" },
-    { type_id: "4", type_name: "港台动漫" },
-    { type_id: "6", type_name: "里番动漫" }
-  ],
-  "39": []
+function normalizeBasePath(path = "") {
+  const p = String(path || "").trim();
+  if (!p) return "/cn";
+  return p.startsWith("/") ? p.replace(/\/+$/, "") : `/${p.replace(/\/+$/, "")}`;
+}
+
+const LANG_PATH = normalizeBasePath(BASE_PATH);
+
+const PPNIX_SEGMENT_HOST = process.env.PPNIX_SEGMENT_HOST || "https://1.ppnix.com";
+const PPNIX_REWRITE_M3U8 = process.env.PPNIX_REWRITE_M3U8 === "1";
+const PPNIX_CF_COOKIE = process.env.PPNIX_CF_COOKIE || process.env.PPNIX_COOKIE || "";
+const PPNIX_CF_AUTO = process.env.PPNIX_CF_AUTO !== "0";
+const PPNIX_CF_CACHE_KEY = process.env.PPNIX_CF_CACHE_KEY || "ppnix:cf_clearance";
+const PPNIX_CF_MAX_AGE_SECONDS = parseInt(process.env.PPNIX_CF_MAX_AGE_SECONDS || "21600", 10) || 21600;
+const PPNIX_CF_TIMEOUT_MS = parseInt(process.env.PPNIX_CF_TIMEOUT_MS || "45000", 10) || 45000;
+// FlareSolverr 服务地址，优先读取站点专用变量，其次回退通用 FLARESOLVERR_URL。
+// 项目地址：https://github.com/FlareSolverr/FlareSolverr
+const PPNIX_FLARESOLVERR_URL = process.env.PPNIX_FLARESOLVERR_URL || process.env.FLARESOLVERR_URL || "http://192.168.50.50:8191/v1";
+// FlareSolverr 会话名，用于复用已过验证的浏览器会话。
+const PPNIX_FLARESOLVERR_SESSION = process.env.PPNIX_FLARESOLVERR_SESSION || "";
+// FlareSolverr 单次请求最大等待时间（毫秒），默认沿用 CF 自动处理超时配置。
+const PPNIX_FLARESOLVERR_TIMEOUT_MS = parseInt(process.env.PPNIX_FLARESOLVERR_TIMEOUT_MS || String(PPNIX_CF_TIMEOUT_MS), 10) || PPNIX_CF_TIMEOUT_MS;
+const PPNIX_ENABLE_SUBTITLES = process.env.PPNIX_ENABLE_SUBTITLES === "1";
+const execFileAsync = promisify(execFile);
+
+const SORT_MAP = {
+  time: "newstime",
+  hits: "onclick",
+  score: "rating",
+  newstime: "newstime",
+  onclick: "onclick",
+  rating: "rating",
 };
 
-const DEFAULT_BLOCKED_MAIN = ["39"];
+function joinUrl(path = "") {
+  const raw = String(path || "").trim();
+  if (!raw) return `${BASE_URL}${LANG_PATH}/`;
+  if (/^https?:\/\//i.test(raw)) return raw;
+  if (raw.startsWith("/")) return `${BASE_URL}${raw}`;
+  return `${BASE_URL}/${raw}`;
+}
 
-const http = axios.create({
-  timeout: 20000,
-  headers: {
-    "User-Agent": UA,
-    "Accept": "application/json,text/plain,*/*",
-    "Referer": `${HOST}/`
-  },
-  validateStatus: () => true
-});
+function buildCookieHeader(cookie = "") {
+  const value = text(cookie);
+  return value ? { Cookie: value } : {};
+}
 
-const CLASS_CACHE = {
-  list: [],
-  mapById: {},
-  childMap: {}
-};
+function toCookieString(cookieMap = {}) {
+  return Object.entries(cookieMap || {})
+    .map(([k, v]) => [text(k), text(v)])
+    .filter(([k, v]) => k && v)
+    .map(([k, v]) => `${k}=${v}`)
+    .join("; ");
+}
 
-function safeJson(input, fallback = {}) {
-  if (!input) return fallback;
-  if (typeof input === "object") return input;
+function cookiesArrayToString(cookies = []) {
+  return (Array.isArray(cookies) ? cookies : [])
+    .map((item) => ({ name: text(item?.name || ""), value: text(item?.value || "") }))
+    .filter((item) => item.name && item.value)
+    .map((item) => `${item.name}=${item.value}`)
+    .join("; ");
+}
+
+async function getCachedCfCookie() {
+  if (text(PPNIX_CF_COOKIE)) return text(PPNIX_CF_COOKIE);
   try {
-    return JSON.parse(input);
-  } catch {
-    return fallback;
+    const cached = await OmniBox.getCache(PPNIX_CF_CACHE_KEY);
+    return text(cached || "");
+  } catch (error) {
+    OmniBox.log("warn", `[cf] 读取缓存失败: ${error.message}`);
+    return "";
   }
+}
+
+async function setCachedCfCookie(cookie) {
+  const value = text(cookie);
+  if (!value || text(PPNIX_CF_COOKIE)) return;
+  try {
+    await OmniBox.setCache(PPNIX_CF_CACHE_KEY, value, PPNIX_CF_MAX_AGE_SECONDS);
+  } catch (error) {
+    OmniBox.log("warn", `[cf] 写入缓存失败: ${error.message}`);
+  }
+}
+
+async function fetchCfClearanceWithFlareSolverr(targetUrl = `${BASE_URL}${LANG_PATH}/`) {
+  const endpoint = text(PPNIX_FLARESOLVERR_URL);
+  if (!endpoint) {
+    throw new Error("未配置 FlareSolverr 地址");
+  }
+
+  const payload = {
+    cmd: "request.get",
+    url: targetUrl,
+    maxTimeout: PPNIX_FLARESOLVERR_TIMEOUT_MS,
+  };
+  if (text(PPNIX_FLARESOLVERR_SESSION)) {
+    payload.session = text(PPNIX_FLARESOLVERR_SESSION);
+  }
+
+  const res = await axios.post(endpoint, payload, {
+    timeout: PPNIX_FLARESOLVERR_TIMEOUT_MS + 5000,
+    headers: {
+      "Content-Type": "application/json",
+      "User-Agent": USER_AGENT,
+    },
+    validateStatus: () => true,
+  });
+
+  if (res.status !== 200 || !res.data || res.data.status !== "ok") {
+    throw new Error(`FlareSolverr HTTP ${res.status}`);
+  }
+
+  const solution = res.data.solution || {};
+  const cookies = Array.isArray(solution.cookies) ? solution.cookies : [];
+  const cookie = cookiesArrayToString(cookies);
+  const cf = cookies.find((item) => text(item?.name) === "cf_clearance" && /ppnix\.com$/i.test(text(item?.domain || "ppnix.com")));
+
+  if (!cf?.value) {
+    throw new Error(`FlareSolverr 未返回 cf_clearance，message=${text(res.data.message || "") || "unknown"}`);
+  }
+
+  OmniBox.log("info", `[cf] FlareSolverr 已返回 cookies=${cookies.length}, ua=${text(solution.userAgent || "")}`);
+  return cookie;
+}
+
+async function fetchCfClearanceWithBrowser() {
+  const script = String.raw`
+const { execFile } = require("child_process");
+const { promisify } = require("util");
+const http = require("http");
+const execFileAsync = promisify(execFile);
+const BASE_URL = process.env.PPNIX_BASE_URL;
+const USER_AGENT = process.env.PPNIX_USER_AGENT;
+const timeoutMs = Number(process.env.PPNIX_CF_TIMEOUT_MS || 45000);
+
+function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+function getJson(url) {
+  return new Promise((resolve, reject) => {
+    http.get(url, (res) => {
+      let data = "";
+      res.on("data", (c) => { data += c; });
+      res.on("end", () => {
+        try { resolve(JSON.parse(data)); } catch (e) { reject(e); }
+      });
+    }).on("error", reject);
+  });
+}
+
+async function waitForDebugger(port, deadline) {
+  while (Date.now() < deadline) {
+    try {
+      const info = await getJson("http://127.0.0.1:" + port + "/json/version");
+      if (info && info.webSocketDebuggerUrl) return info;
+    } catch (_) {}
+    await delay(500);
+  }
+  throw new Error("等待 Chromium 调试端口超时");
+}
+
+async function readCookies(wsUrl) {
+  const ws = new WebSocket(wsUrl);
+  let seq = 0;
+  const pending = new Map();
+  ws.onmessage = (event) => {
+    const msg = JSON.parse(event.data);
+    if (msg.id && pending.has(msg.id)) {
+      pending.get(msg.id)(msg);
+      pending.delete(msg.id);
+    }
+  };
+  await new Promise((resolve, reject) => {
+    ws.onopen = resolve;
+    ws.onerror = reject;
+  });
+  const send = (method, params = {}) => new Promise((resolve) => {
+    const id = ++seq;
+    pending.set(id, resolve);
+    ws.send(JSON.stringify({ id, method, params }));
+  });
+  const res = await send("Storage.getCookies", {});
+  ws.close();
+  return (res.result && res.result.cookies) || [];
+}
+
+(async () => {
+  const port = 9223 + Math.floor(Math.random() * 200);
+  const userDataDir = await execFileAsync("mktemp", ["-d", "/tmp/ppnix-cf-XXXXXX"]);
+  const profileDir = String(userDataDir.stdout || "").trim();
+  const chrome = ["/snap/bin/chromium", "/usr/bin/chromium-browser", "/usr/bin/chromium"];
+  const bin = chrome.find(Boolean);
+  if (!bin) throw new Error("未找到 Chromium");
+
+  const child = execFile(bin, [
+    "--headless=new",
+    "--disable-gpu",
+    "--no-sandbox",
+    "--user-data-dir=" + profileDir,
+    "--remote-debugging-port=" + port,
+    "--user-agent=" + USER_AGENT,
+    BASE_URL + "/cn/"
+  ], { stdio: "ignore" });
+
+  try {
+    const deadline = Date.now() + timeoutMs;
+    const version = await waitForDebugger(port, deadline);
+    while (Date.now() < deadline) {
+      const cookies = await readCookies(version.webSocketDebuggerUrl);
+      const hit = cookies.find((c) => c && c.name === "cf_clearance" && String(c.domain || "").includes("ppnix.com"));
+      if (hit && hit.value) {
+        process.stdout.write("cf_clearance=" + hit.value);
+        return;
+      }
+      await delay(1200);
+    }
+    throw new Error("未在时限内获取到 cf_clearance");
+  } finally {
+    try { child.kill("SIGKILL"); } catch (_) {}
+  }
+})().catch((error) => {
+  console.error(error && error.message ? error.message : String(error));
+  process.exit(1);
+});`;
+
+  const { stdout, stderr } = await execFileAsync("node", ["-e", script], {
+    timeout: PPNIX_CF_TIMEOUT_MS,
+    env: {
+      ...process.env,
+      PPNIX_BASE_URL: BASE_URL,
+      PPNIX_USER_AGENT: USER_AGENT,
+      PPNIX_CF_TIMEOUT_MS: String(PPNIX_CF_TIMEOUT_MS),
+    },
+    maxBuffer: 1024 * 1024,
+  });
+
+  const cookie = text(stdout || "");
+  if (!/^cf_clearance=/.test(cookie)) {
+    throw new Error(text(stderr || "未获取到 cf_clearance"));
+  }
+  return cookie;
+}
+
+async function ensureCfCookie(forceRefresh = false, targetUrl = `${BASE_URL}${LANG_PATH}/`) {
+  if (text(PPNIX_CF_COOKIE)) return text(PPNIX_CF_COOKIE);
+  if (!forceRefresh) {
+    const cached = await getCachedCfCookie();
+    if (cached) return cached;
+  }
+  if (!PPNIX_CF_AUTO) return "";
+
+  let cookie = "";
+  try {
+    OmniBox.log("info", `[cf] 开始通过 FlareSolverr 自动获取 cf_clearance`);
+    cookie = await fetchCfClearanceWithFlareSolverr(targetUrl);
+  } catch (error) {
+    OmniBox.log("warn", `[cf] FlareSolverr 获取失败，回退 headless Chromium: ${error.message}`);
+    cookie = await fetchCfClearanceWithBrowser();
+  }
+
+  if (cookie) {
+    await setCachedCfCookie(cookie);
+    OmniBox.log("info", `[cf] 已自动获取 cf_clearance，长度=${cookie.length}`);
+  }
+  return cookie;
+}
+
+async function requestPage(path) {
+  const url = joinUrl(path);
+  OmniBox.log("info", `[request] ${url}`);
+  let cookie = await getCachedCfCookie();
+  let res = await axios.get(url, {
+    timeout: 20000,
+    headers: {
+      "User-Agent": USER_AGENT,
+      "Referer": `${BASE_URL}${LANG_PATH}/`,
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      ...buildCookieHeader(cookie),
+    },
+    validateStatus: () => true,
+  });
+
+  if ((res.status === 403 || res.status === 503) && PPNIX_CF_AUTO) {
+    cookie = await ensureCfCookie(!cookie, url);
+    res = await axios.get(url, {
+      timeout: 20000,
+      headers: {
+        "User-Agent": USER_AGENT,
+        "Referer": `${BASE_URL}${LANG_PATH}/`,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        ...buildCookieHeader(cookie),
+      },
+      validateStatus: () => true,
+    });
+  }
+
+  if (res.status !== 200 || !res.data) {
+    throw new Error(`HTTP ${res.status}`);
+  }
+
+  return {
+    url,
+    html: typeof res.data === "string" ? res.data : String(res.data || ""),
+  };
 }
 
 function text(v) {
   return String(v == null ? "" : v).trim();
 }
 
-function fixUrl(url) {
+function fixImage(url) {
   const u = text(url);
   if (!u) return "";
   if (/^https?:\/\//i.test(u)) return u;
   if (u.startsWith("//")) return `https:${u}`;
-  if (u.startsWith("/")) return `${HOST}${u}`;
-  return `${HOST}/${u}`;
+  if (u.startsWith("/")) return `${BASE_URL}${u}`;
+  return `${BASE_URL}/${u}`;
 }
 
-function b64Encode(obj) {
-  try {
-    return Buffer.from(JSON.stringify(obj || {}), "utf8").toString("base64");
-  } catch {
-    return "";
-  }
+function stripTags(s = "") {
+  return text(String(s || "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " "));
 }
 
-function b64Decode(str) {
-  try {
-    return JSON.parse(Buffer.from(String(str || ""), "base64").toString("utf8"));
-  } catch {
-    return {};
-  }
+function decodeHtmlEntity(str = "") {
+  return text(str)
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">");
 }
 
-function getBlockedMainSet() {
-  const env = text(process.env.IQIYIZY_BLOCKED_MAIN);
-  const raw = env ? env.split(",").map((s) => s.trim()).filter(Boolean) : DEFAULT_BLOCKED_MAIN;
-  return new Set(raw);
-}
+function mapListItems($, scope, typeId = "") {
+  const list = [];
+  const seen = new Set();
+  $(scope).each((_, el) => {
+    const $el = $(el);
+    const $a = $el.find("a.thumbnail, h2 a, a").first();
+    const href = $a.attr("href") || $el.find("h2 a").attr("href") || "";
+    const vodId = text(href);
+    if (!vodId || seen.has(vodId)) return;
+    seen.add(vodId);
 
-function updateClassCache(classList) {
-  const classes = Array.isArray(classList)
-    ? classList.map((c) => ({
-        type_id: text(c.type_id),
-        type_pid: text(c.type_pid),
-        type_name: text(c.type_name)
-      })).filter((c) => c.type_id && c.type_name)
-    : [];
+    const vodName = text($el.find("img.thumb").attr("alt") || $el.find("h2 a").text() || $a.text());
+    const vodPic = fixImage($el.find("img.thumb").attr("src") || $el.find("img.thumb").attr("data-src") || "");
+    const vodRemarks = text($el.find("footer .rate").text() || $el.find("footer").text());
 
-  if (!classes.length) return;
+    if (!vodName) return;
 
-  const mapById = {};
-  const childMap = {};
-  classes.forEach((c) => {
-    mapById[c.type_id] = c;
-    const pid = c.type_pid || "0";
-    if (!childMap[pid]) childMap[pid] = [];
-    childMap[pid].push(c);
+    list.push({
+      vod_id: vodId,
+      vod_name: vodName,
+      vod_pic: vodPic,
+      type_id: typeId,
+      type_name: typeId === "movie" ? "电影" : typeId === "tv" ? "电视剧" : "",
+      vod_remarks: vodRemarks,
+    });
   });
-
-  CLASS_CACHE.list = classes;
-  CLASS_CACHE.mapById = mapById;
-  CLASS_CACHE.childMap = childMap;
+  return list;
 }
 
-async function fetchApi(params = {}) {
-  try {
-    const res = await http.get(API, { params });
-    const data = safeJson(res.data, {});
-    if (Array.isArray(data.class)) updateClassCache(data.class);
-    return data;
-  } catch (error) {
-    await OmniBox.log("warn", `fetchApi 失败: ${error.message}`);
-    return {};
+function parseM3u8List(html = "") {
+  const infoId = (html.match(/infoid\s*=\s*(\d+)/) || [])[1] || "";
+  const m = html.match(/m3u8\s*=\s*\[(.*?)\]/s);
+  if (!m) return { infoId, items: [] };
+  const items = [];
+  const re = /'([^']*)'|"([^"]*)"/g;
+  let mm;
+  while ((mm = re.exec(m[1])) !== null) {
+    const value = text(mm[1] || mm[2] || "");
+    if (value) items.push(value);
   }
+  return { infoId, items };
 }
 
-async function ensureClassCache() {
-  if (Array.isArray(CLASS_CACHE.list) && CLASS_CACHE.list.length > 0) return;
-  await fetchApi({ ac: "list", pg: 1 });
+function buildPlayId(meta) {
+  const infoId = text(meta.infoId || "");
+  const param = encodeURIComponent(text(meta.param || ""));
+  const referer = encodeURIComponent(text(meta.referer || ""));
+  const name = encodeURIComponent(text(meta.name || ""));
+  const episodeName = encodeURIComponent(text(meta.episodeName || ""));
+  return `${infoId}|${param}|${referer}|${name}|${episodeName}`;
 }
 
-function resolveMainTypeId(typeId, fallbackMain = "") {
-  const t = text(typeId);
-  if (!t) return text(fallbackMain);
-  if (MAIN_CATEGORIES.some((m) => m.type_id === t)) return t;
-
-  const mapById = CLASS_CACHE.mapById || {};
-  let cur = mapById[t];
-  let guard = 0;
-  while (cur && guard < 10) {
-    guard += 1;
-    if (MAIN_CATEGORIES.some((m) => m.type_id === cur.type_id)) return cur.type_id;
-    if (!cur.type_pid || cur.type_pid === cur.type_id) break;
-    cur = mapById[cur.type_pid];
-  }
-
-  return text(fallbackMain);
-}
-
-function isMainBlocked(mainTypeId) {
-  return getBlockedMainSet().has(text(mainTypeId));
-}
-
-function mapListItem(item) {
-  const typeId = text(item.type_id || "");
-  const mainTypeId = resolveMainTypeId(typeId, item.type_id_1 || "");
+function parsePlayId(playId) {
+  const parts = String(playId || "").split("|");
   return {
-    vod_id: text(item.vod_id),
-    vod_name: text(item.vod_name),
-    vod_pic: fixUrl(item.vod_pic),
-    vod_remarks: text(item.vod_remarks || item.type_name || ""),
-    type_id: typeId,
-    type_name: text(item.type_name || ""),
-    main_type_id: mainTypeId,
-    vod_year: text(item.vod_year || ""),
-    vod_douban_score: text(item.vod_douban_score || "")
+    infoId: text(parts[0] || ""),
+    param: decodeURIComponent(parts[1] || ""),
+    referer: decodeURIComponent(parts[2] || ""),
+    name: decodeURIComponent(parts[3] || ""),
+    episodeName: decodeURIComponent(parts[4] || ""),
   };
 }
 
-function buildResourceId(vodId) {
-  // 注意：OmniBox 刮削系统要求 resourceId 直接使用裸 videoId，不能加前缀
-  // 参考瓜子.js: processScraping(videoId, ...) / getScrapeMetadata(videoId)
-  return text(vodId);
-}
-
-function buildEpisodeFileId(vodId, flag, epName, idx) {
-  // fileId 格式与瓜子.js 保持一致: `${videoId}#${index}`
-  // index 从 1 开始，多线路时加上 flag 区分，避免重复
-  return `${text(vodId)}#${text(flag)}#${idx}`;
-}
-
-function parsePlaySources(vodPlayFrom, vodPlayUrl, vodId, vodName = "") {
-  // 这里做两件事：
-  // 1) 把资源站返回的旧格式 vod_play_from / vod_play_url 转成 OmniBox 推荐的新格式 vod_play_sources
-  // 2) 同时构造一份 videoFiles，供 processScraping(resourceId, keyword, resourceName, videoFiles) 使用
-  //
-  // 为什么要额外构造 videoFiles？
-  // 因为本源不是网盘源，没有天然的 fileId，刮削系统依赖 fileId 把“某一集”映射到 TMDB 的某一集。
-  // 所以这里人为构造一个稳定 fileId：iqiyizy:{vodId}:{flag}:{idx}:{epName}
-  // detail 阶段用它去刮削，play 阶段再把同一个 fileId 塞回 playId，这样就能在播放时找回映射关系。
-  const fromArr = text(vodPlayFrom).split("$$$").map((s) => s.trim()).filter(Boolean);
-  const urlArr = text(vodPlayUrl).split("$$$").map((s) => s.trim()).filter(Boolean);
-  const sourceCount = Math.max(fromArr.length, urlArr.length);
-  const sources = [];
-  const videoFiles = [];
-
-  for (let i = 0; i < sourceCount; i += 1) {
-    const flag = fromArr[i] || `线路${i + 1}`;
-    const group = urlArr[i] || "";
-    const episodesRaw = group.split("#").map((s) => s.trim()).filter(Boolean);
-
-    const episodes = episodesRaw.map((item, idx) => {
-      let epName = `第${idx + 1}集`;
-      let epUrl = item;
-      const cut = item.indexOf("$");
-      if (cut > -1) {
-        epName = text(item.slice(0, cut)) || epName;
-        epUrl = text(item.slice(cut + 1));
-      }
-
-      const fileId = buildEpisodeFileId(vodId, flag, epName, idx + 1);
-      videoFiles.push({
-        fid: fileId,
-        file_id: fileId,
-        file_name: epName,
-        name: epName,
-        format_type: "video"
-      });
-
-      const playId = b64Encode({
-        resourceId: buildResourceId(vodId),
-        vodId: text(vodId),
-        name: vodName,
-        flag,
-        epName,
-        episodeIndex: idx + 1,
-        fileId,
-        url: epUrl
-      });
-
-      return { name: epName, playId, _fileId: fileId };
+async function fetchText(url, headers = {}) {
+  let cookie = await getCachedCfCookie();
+  let res = await axios.get(url, {
+    timeout: 20000,
+    headers: {
+      "User-Agent": USER_AGENT,
+      ...headers,
+      ...buildCookieHeader(cookie),
+    },
+    validateStatus: () => true,
+  });
+  if ((res.status === 403 || res.status === 503) && PPNIX_CF_AUTO) {
+    cookie = await ensureCfCookie(!cookie, url);
+    res = await axios.get(url, {
+      timeout: 20000,
+      headers: {
+        "User-Agent": USER_AGENT,
+        ...headers,
+        ...buildCookieHeader(cookie),
+      },
+      validateStatus: () => true,
     });
+  }
+  if (res.status !== 200) {
+    throw new Error(`HTTP ${res.status}`);
+  }
+  return typeof res.data === "string" ? res.data : String(res.data || "");
+}
 
-    if (episodes.length > 0) {
-      sources.push({ name: flag, episodes });
-    }
+function rewritePpnixM3u8(m3u8Text, referer) {
+  const keyUrl = `${BASE_URL}/info/m3u8/key`;
+  return String(m3u8Text || "")
+    .replace(/URI="\.\.\/key"/g, `URI="${keyUrl}"`)
+    .replace(/https:\/\/ipfs\.ppnix\.com\/ipfs\//g, `${PPNIX_SEGMENT_HOST}/ipfs/`);
+}
+
+function buildSubtitleSelector(infoId, param, langs = ["cn", "tw", "en"]) {
+  const items = [];
+  for (const lang of langs) {
+    const code = text(lang);
+    if (!code) continue;
+    items.push({
+      name: code,
+      url: `${BASE_URL}/info/subtitle/${infoId}/${encodeURIComponent(param)}/${code}.srt`,
+    });
+  }
+  return items;
+}
+
+function uniqValues(values = []) {
+  return [...new Set(values.map((v) => text(v)).filter(Boolean))];
+}
+
+function normalizeCategoryFilters(raw = {}) {
+  const filters = raw && typeof raw === "object" ? raw : {};
+  return {
+    class: text(filters.class || filters.type || filters.cate || ""),
+    area: text(filters.area || ""),
+    year: text(filters.year || ""),
+    by: text(filters.by || filters.sort || "newstime") || "newstime",
+  };
+}
+
+function buildFilterPath(categoryId, page = 1, rawFilters = {}) {
+  const filters = normalizeCategoryFilters(rawFilters);
+  const genre = filters.class;
+  const area = filters.area;
+  const year = filters.year;
+  const sort = SORT_MAP[filters.by] || "newstime";
+  const pagePart = page <= 1 ? "" : `${page - 1}`;
+  return `${LANG_PATH}/${categoryId}/${genre}-${area}-${year}-${pagePart}-${sort}.html`;
+}
+
+function extractFilterValues($, root, currentText = "") {
+  const values = [];
+  $(root).find("a").each((_, el) => {
+    const name = text($(el).text());
+    if (!name || name === currentText) return;
+    values.push(name);
+  });
+  return uniqValues(values);
+}
+
+function buildCategoryFilters($) {
+  const groups = [];
+  const dls = $(".lists-content.filter dl");
+  if (!dls.length) return groups;
+
+  const typeValues = extractFilterValues($, dls.eq(0), "全部");
+  if (typeValues.length) {
+    groups.push({
+      key: "class",
+      name: "类型",
+      init: "",
+      value: [{ name: "全部", value: "" }, ...typeValues.map((v) => ({ name: v, value: v }))],
+    });
   }
 
-  return { sources, videoFiles };
-}
-
-async function enrichPlaySourcesWithMetadata(playSources, resourceId) {
-  // 这里只负责“把刮削结果回填到剧集列表里”，不负责触发刮削。
-  // 典型调用顺序：
-  //   detail -> processScraping(...) -> getScrapeMetadata(...) -> enrichPlaySourcesWithMetadata(...)
-  //
-  // 注意：即使这里成功拿到了 metadata，页面上也不一定会“看起来变化很大”。
-  // 因为前端主要展示 vod_name / vod_pic / 简介 / 剧集名称等字段；
-  // 如果站点原始数据已经比较完整，或者前端没有展示 enrich 字段，就会产生“刮削似乎没生效”的错觉。
-  // 所以这里额外加详细日志，帮助判断到底是：
-  // - processScraping 没跑到
-  // - getScrapeMetadata 没拿到数据
-  // - videoMappings 没匹配上 fileId
-  // - 还是拿到了但前端展示不明显
-  try {
-    await OmniBox.log("info", `[刮削回填] 开始读取元数据 resourceId=${resourceId}`);
-    const metadata = await OmniBox.getScrapeMetadata(resourceId);
-    const scrapeData = metadata?.scrapeData || null;
-    const videoMappings = Array.isArray(metadata?.videoMappings) ? metadata.videoMappings : [];
-
-    await OmniBox.log(
-      "info",
-      `[刮削回填] 元数据读取完成 resourceId=${resourceId}, hasScrapeData=${!!scrapeData}, mappingCount=${videoMappings.length}, playSourceCount=${playSources.length}`
-    );
-
-    if (scrapeData) {
-      await OmniBox.log(
-        "info",
-        `[刮削回填] scrapeData 摘要 title=${text(scrapeData.title)}, releaseDate=${text(scrapeData.releaseDate)}, voteAverage=${text(scrapeData.voteAverage)}`
-      );
-    }
-
-    if (!playSources.length || !videoMappings.length) {
-      await OmniBox.log(
-        "warn",
-        `[刮削回填] 没有可回填的数据 playSources=${playSources.length}, videoMappings=${videoMappings.length}`
-      );
-      return { playSources, scrapeData, metadata };
-    }
-
-    const mappingMap = new Map();
-    for (const m of videoMappings) {
-      if (m?.fileId) mappingMap.set(String(m.fileId), m);
-    }
-
-    let matchedCount = 0;
-
-    for (const source of playSources) {
-      for (const ep of source.episodes || []) {
-        const lookupKey = String(ep._fileId || "");
-        const mapping = mappingMap.get(lookupKey);
-        if (!mapping) {
-          await OmniBox.log("info", `[刮削回填] 未命中映射 source=${source.name}, episode=${ep.name}, fileId=${lookupKey}`);
-          continue;
-        }
-
-        matchedCount += 1;
-        await OmniBox.log(
-          "info",
-          `[刮削回填] 命中映射 source=${source.name}, oldEpisode=${ep.name}, fileId=${lookupKey}, season=${mapping.seasonNumber ?? ""}, episode=${mapping.episodeNumber ?? ""}, tmdbEpisodeName=${text(mapping.episodeName)}`
-        );
-
-        if (mapping.episodeName) {
-          const epName = mapping.episodeNumber + "." + mapping.episodeName;
-          ep.episodeName = epName;
-        }
-        if (mapping.episodeOverview) ep.episodeOverview = mapping.episodeOverview;
-        if (mapping.episodeAirDate) ep.episodeAirDate = mapping.episodeAirDate;
-        if (mapping.episodeStillPath) ep.episodeStillPath = mapping.episodeStillPath;
-        if (mapping.episodeVoteAverage != null) ep.episodeVoteAverage = mapping.episodeVoteAverage;
-        if (mapping.episodeRuntime != null) ep.episodeRuntime = mapping.episodeRuntime;
-        if (mapping.seasonNumber != null) ep._seasonNumber = mapping.seasonNumber;
-        if (mapping.episodeNumber != null) ep._episodeNumber = mapping.episodeNumber;
-        if (mapping.episodeName) {
-          const epName = mapping.episodeNumber + "." + mapping.episodeName;
-          ep.name = epName;
-        }
-      }
-
-      const hasOrdering = (source.episodes || []).some((ep) => ep._episodeNumber != null);
-      if (hasOrdering) {
-        await OmniBox.log("info", `[刮削回填] 线路 ${source.name} 检测到剧集排序信息，按 season/episode 重排`);
-        source.episodes.sort((a, b) => {
-          const sa = Number(a._seasonNumber || 0);
-          const sb = Number(b._seasonNumber || 0);
-          if (sa !== sb) return sa - sb;
-          return Number(a._episodeNumber || 0) - Number(b._episodeNumber || 0);
-        });
-      }
-
-      for (const ep of source.episodes || []) {
-        delete ep._seasonNumber;
-        delete ep._episodeNumber;
-        delete ep._fileId;
-      }
-    }
-
-    await OmniBox.log("info", `[刮削回填] 完成 resourceId=${resourceId}, matchedEpisodeCount=${matchedCount}`);
-    return { playSources, scrapeData, metadata };
-  } catch (error) {
-    await OmniBox.log("warn", `获取刮削元数据失败: ${error.message}`);
-    for (const source of playSources) {
-      for (const ep of source.episodes || []) delete ep._fileId;
-    }
-    return { playSources, scrapeData: null, metadata: null };
-  }
-}
-
-function buildMainClasses() {
-  return MAIN_CATEGORIES.filter((c) => !isMainBlocked(c.type_id));
-}
-
-function buildFiltersForMain(mainTypeId) {
-  const key = text(mainTypeId);
-  const cacheChildren = (CLASS_CACHE.childMap?.[key] || [])
-    .filter((c) => c.type_id !== key)
-    .map((c) => ({ type_id: c.type_id, type_name: c.type_name }));
-  const children = (cacheChildren.length ? cacheChildren : (MAIN_CHILDREN_FALLBACK[key] || []))
-    .sort((a, b) => String(a.type_id).localeCompare(String(b.type_id)));
-  if (!children.length) return [];
-  return [{
-    key: "subtype",
-    name: "子分类",
-    init: "",
-    value: [{ name: "全部", value: "" }, ...children.map((c) => ({ name: c.type_name, value: c.type_id }))]
-  }];
-}
-
-function getChildTypeIds(mainTypeId) {
-  const key = text(mainTypeId);
-  const cacheChildren = (CLASS_CACHE.childMap?.[key] || [])
-    .filter((c) => c.type_id && c.type_id !== key)
-    .map((c) => c.type_id);
-  if (cacheChildren.length) return cacheChildren;
-  return (MAIN_CHILDREN_FALLBACK[key] || []).map((c) => c.type_id);
-}
-
-async function fetchMainAllByChildren(mainTypeId, page) {
-  const childTypeIds = getChildTypeIds(mainTypeId);
-  if (!childTypeIds.length) {
-    const direct = await fetchApi({ ac: "list", t: text(mainTypeId), pg: page });
-    const directList = (Array.isArray(direct.list) ? direct.list : [])
-      .map(mapListItem)
-      .filter((it) => !isMainBlocked(it.main_type_id || it.type_id));
-    return {
-      list: directList,
-      page: Number(direct.page || page || 1),
-      pagecount: Number(direct.pagecount || page || 1),
-      total: Number(direct.total || directList.length || 0),
-      limit: Number(direct.limit || 20)
-    };
+  const areaValues = extractFilterValues($, dls.eq(1), "全部");
+  if (areaValues.length) {
+    groups.push({
+      key: "area",
+      name: "地区",
+      init: "",
+      value: [{ name: "全部", value: "" }, ...areaValues.map((v) => ({ name: v, value: v }))],
+    });
   }
 
-  const results = await Promise.all(childTypeIds.map((tid) => fetchApi({ ac: "list", t: tid, pg: page })));
-  const mergedRaw = [];
-  let total = 0;
-  let pagecount = 0;
-  let limit = 20;
+  const yearValues = extractFilterValues($, dls.eq(2), "全部");
+  if (yearValues.length) {
+    groups.push({
+      key: "year",
+      name: "年份",
+      init: "",
+      value: [{ name: "全部", value: "" }, ...yearValues.map((v) => ({ name: v, value: v }))],
+    });
+  }
 
-  results.forEach((data) => {
-    const arr = Array.isArray(data.list) ? data.list : [];
-    mergedRaw.push(...arr);
-    total += Number(data.total || 0);
-    pagecount = Math.max(pagecount, Number(data.pagecount || 0));
-    if (Number(data.limit || 0) > 0) limit = Number(data.limit);
+  groups.push({
+    key: "by",
+    name: "排序",
+    init: "newstime",
+    value: [
+      { name: "按时间", value: "newstime" },
+      { name: "按人气", value: "onclick" },
+      { name: "按评分", value: "rating" },
+    ],
   });
 
-  const seen = new Set();
-  const merged = mergedRaw
-    .map(mapListItem)
-    .filter((it) => !isMainBlocked(it.main_type_id || it.type_id))
-    .filter((it) => {
-      if (!it.vod_id || seen.has(it.vod_id)) return false;
-      seen.add(it.vod_id);
-      return true;
-    })
-    .sort((a, b) => Number(b.vod_id || 0) - Number(a.vod_id || 0));
-
-  return { list: merged, page, pagecount: pagecount || page, total: total || merged.length, limit };
+  return groups;
 }
 
-function getFilterSubtype(params) {
-  return text(params?.filters?.subtype || params?.filter?.subtype || params?.extend?.subtype || params?.ext?.subtype || "");
+function buildM3u8DataUrl(m3u8Text) {
+  return `data:application/vnd.apple.mpegurl;base64,${Buffer.from(String(m3u8Text || ""), "utf8").toString("base64")}`;
 }
 
-function isAllSelection(value) {
-  const v = text(value).toLowerCase();
-  return !v || v === "0" || v === "-1" || v === "all" || v === "全部";
+function rewritePpnixM3u8LikeWeb(m3u8Text) {
+  const keyUrl = `${BASE_URL}/info/m3u8/key`;
+  return String(m3u8Text || "")
+    .replace(/URI="\.\.\/key"/g, `URI="${keyUrl}"`);
 }
 
-function inferTypeName(mainTypeId, rawTypeName) {
-  const hit = MAIN_CATEGORIES.find((m) => m.type_id === text(mainTypeId));
-  return hit?.type_name || text(rawTypeName || "");
-}
-
-function buildScrapeKeyword(item) {
-  // 只传片名，不加年份；加年份容易干扰 TMDB 搜索（如"你好1983 2026"）
-  // 参考瓜子.js: processScraping(videoId, vod.vod_name, vod.vod_name, ...)
-  return text(item.vod_name);
-}
-
-function buildDanmakuFileName(scrapeData, mapping, fallbackTitle, fallbackEpName) {
-  if (!scrapeData) return `${fallbackTitle || ""} ${fallbackEpName || ""}`.trim();
-  const title = text(scrapeData.title || fallbackTitle || "");
-  const scrapeType = text(scrapeData.scrapeType || scrapeData.type || "").toLowerCase();
-  const seasonAirYear = text(scrapeData.seasonAirYear || scrapeData.releaseDate || "").slice(0, 4);
-
-  if (mapping && (mapping.episodeNumber != null || mapping.seasonNumber != null || scrapeType === "tv")) {
-    const season = Number(mapping?.seasonNumber || 1);
-    const episode = Number(mapping?.episodeNumber || 1);
-    const yearPart = seasonAirYear ? `.${seasonAirYear}` : "";
-    return `${title}${yearPart}.S${String(season).padStart(2, "0")}E${String(episode).padStart(2, "0")}`;
-  }
-
-  return title || `${fallbackTitle || ""} ${fallbackEpName || ""}`.trim();
+function rewritePpnixM3u8ForTvbox(m3u8Text) {
+  const keyUrl = `${BASE_URL}/info/m3u8/key`;
+  return String(m3u8Text || "")
+    .replace(/URI="\.\.\/key"/g, `URI="${keyUrl}"`)
+    .replace(/https:\/\/ipfs\.ppnix\.com\/ipfs\//g, `${PPNIX_SEGMENT_HOST}/ipfs/`);
 }
 
 async function home(params, context) {
-  const data = await fetchApi({ ac: "list", pg: 1 });
-  const classes = buildMainClasses();
-  const list = (Array.isArray(data.list) ? data.list : []).map(mapListItem).filter((it) => !isMainBlocked(it.main_type_id || it.type_id));
-  const filters = {};
-  classes.forEach((m) => {
-    const f = buildFiltersForMain(m.type_id);
-    if (f.length) filters[m.type_id] = f;
-  });
-  return { class: classes, filters, list };
+  try {
+    const [homePage, moviePage, tvPage] = await Promise.all([
+      requestPage(`${LANG_PATH}/`),
+      requestPage(buildFilterPath("movie", 1, {})),
+      requestPage(buildFilterPath("tv", 1, {})),
+    ]);
+
+    const $home = cheerio.load(homePage.html);
+    const $movie = cheerio.load(moviePage.html);
+    const $tv = cheerio.load(tvPage.html);
+
+    const blocks = $home(".lists-content ul");
+    const movieList = blocks.eq(0).length ? mapListItems($home, blocks.eq(0).find("li"), "movie") : [];
+    const tvList = blocks.eq(1).length ? mapListItems($home, blocks.eq(1).find("li"), "tv") : [];
+    const list = [...movieList, ...tvList].slice(0, 30);
+
+    const filters = {
+      movie: buildCategoryFilters($movie),
+      tv: buildCategoryFilters($tv),
+    };
+
+    OmniBox.log("info", `[home] 分类=${CATEGORIES.length}, 推荐=${list.length}, movieFilters=${filters.movie?.length || 0}, tvFilters=${filters.tv?.length || 0}`);
+    return {
+      class: CATEGORIES,
+      filters,
+      list,
+    };
+  } catch (error) {
+    OmniBox.log("error", `[home] 失败: ${error.message}`);
+    return { class: CATEGORIES, filters: {}, list: [] };
+  }
 }
 
 async function category(params, context) {
-  const page = parseInt(params?.page || "1", 10) || 1;
-  const mainTypeId = text(params?.categoryId || params?.type_id || "");
-  const subtype = getFilterSubtype(params);
-  await ensureClassCache();
+  try {
+    const categoryId = text(params.categoryId || params.type_id || "movie");
+    const page = parseInt(params.page || "1", 10) || 1;
+    const rawFilters = params.filters || params.extend || {};
+    const path = buildFilterPath(categoryId, page, rawFilters);
+    const { html } = await requestPage(path);
+    const $ = cheerio.load(html);
 
-  if (isMainBlocked(mainTypeId)) {
-    return { list: [], page, pagecount: 0, total: 0, limit: 20 };
-  }
+    const list = mapListItems($, ".lists-content > ul > li, .lists .lists-content ul li", categoryId)
+      .filter((item) => item.vod_id.includes(`/${categoryId}/`));
 
-  let result;
-  if (!isAllSelection(subtype)) {
-    const data = await fetchApi({ ac: "list", t: subtype, pg: page });
-    const list = (Array.isArray(data.list) ? data.list : []).map(mapListItem).filter((it) => !isMainBlocked(it.main_type_id || it.type_id));
-    result = {
+    let pagecount = page;
+    const pagerHtml = $(".pagination, .pages, .pagenavi").html() || "";
+    const matches = [...pagerHtml.matchAll(/---(\d+)-\.html/g)].map((m) => Number(m[1]) + 1);
+    if (matches.length > 0) {
+      pagecount = Math.max(page, ...matches);
+    }
+
+    const categoryFilters = buildCategoryFilters($);
+    OmniBox.log("info", `[category] categoryId=${categoryId}, page=${page}, path=${path}, list=${list.length}, pagecount=${pagecount}`);
+    return {
       list,
-      page: Number(data.page || page || 1),
-      pagecount: Number(data.pagecount || page || 1),
-      total: Number(data.total || list.length || 0),
-      limit: Number(data.limit || 20)
+      page,
+      pagecount,
+      total: list.length,
+      filters: categoryFilters.length ? { [categoryId]: categoryFilters } : {},
     };
-  } else {
-    result = await fetchMainAllByChildren(mainTypeId, page);
+  } catch (error) {
+    OmniBox.log("error", `[category] 失败: ${error.message}`);
+    return { list: [], page: 1, pagecount: 0, total: 0, filters: {} };
   }
-
-  const f = buildFiltersForMain(mainTypeId);
-  if (f.length && page === 1) result.filters = f;
-  return result;
-}
-
-async function search(params, context) {
-  const keyword = text(params?.keyword || params?.wd || "");
-  const page = parseInt(params?.page || "1", 10) || 1;
-  if (!keyword) return { list: [], page: 1, pagecount: 0, total: 0 };
-
-  const data = await fetchApi({ ac: "list", wd: keyword, pg: page });
-  const list = (Array.isArray(data.list) ? data.list : []).map(mapListItem).filter((it) => !isMainBlocked(it.main_type_id || it.type_id));
-  return {
-    list,
-    page: Number(data.page || page || 1),
-    pagecount: Number(data.pagecount || page || 1),
-    total: Number(data.total || list.length || 0),
-    limit: Number(data.limit || 20)
-  };
 }
 
 async function detail(params, context) {
   try {
-    const videoId = text(params?.videoId || "");
+    const videoId = text(params.videoId || "");
     if (!videoId) return { list: [] };
 
-    await OmniBox.log("info", `[detail] 开始处理 videoId=${videoId}`);
-    const data = await fetchApi({ ac: "detail", ids: videoId });
-    const item = Array.isArray(data.list) && data.list.length ? data.list[0] : null;
-    if (!item) {
-      await OmniBox.log("warn", `[detail] 未获取到详情数据 videoId=${videoId}`);
-      return { list: [] };
-    }
+    const { html, url } = await requestPage(videoId);
+    const $ = cheerio.load(html);
 
-    const mainTypeId = resolveMainTypeId(item.type_id, item.type_id_1 || "");
-    if (isMainBlocked(mainTypeId)) {
-      await OmniBox.log("warn", `[detail] 命中屏蔽主类 mainTypeId=${mainTypeId}, videoId=${videoId}`);
-      return { list: [] };
-    }
+    const titleRaw = text($("h1.product-title").text());
+    const vodName = titleRaw.replace(/\s*\([^)]*\)\s*$/, "").trim() || text($("title").text()).replace(/\s*\([^)]*\).*/, "");
+    const vodPic = fixImage($("header.product-header img.thumb").attr("src") || "");
+    const vodContent = text($(".product-excerpt").filter((_, el) => $(el).text().includes("简介：")).text()).replace(/^简介：/, "").trim();
+    const vodDirector = text($(".product-excerpt").filter((_, el) => $(el).text().includes("导演：")).find("span").text());
+    const vodActor = text($(".product-excerpt").filter((_, el) => $(el).text().includes("主演：")).find("span").text()).replace(/\s*\/\s*/g, ",");
+    const vodYear = ((titleRaw.match(/\((\d{4})\)/) || [])[1]) || "";
 
-    const resourceId = buildResourceId(videoId);
-    const { sources, videoFiles } = parsePlaySources(item.vod_play_from, item.vod_play_url, videoId, item.vod_name);
-
-    await OmniBox.log(
-      "info",
-      `[detail] 播放数据已解析 videoId=${videoId}, resourceId=${resourceId}, sourceCount=${sources.length}, videoFileCount=${videoFiles.length}, vodName=${text(item.vod_name)}`
-    );
-
-    let scrapeData = null;
-    if (videoFiles.length > 0) {
-      const scrapeKeyword = buildScrapeKeyword(item);
-      await OmniBox.log(
-        "info",
-        `[detail] 准备执行刮削 resourceId=${resourceId}, keyword=${scrapeKeyword}, resourceName=${text(item.vod_name)}, firstFile=${text(videoFiles[0]?.file_name)}`
-      );
-      try {
-        // processScraping 在采集源中是同步阻塞的，等刮削完成后才返回
-        // 调用完成后可立即读取元数据，不需要轮询
-        const scrapingResult = await OmniBox.processScraping(resourceId, scrapeKeyword, text(item.vod_name), videoFiles);
-        await OmniBox.log("info", `[detail] processScraping 调用完成 resourceId=${resourceId}, result=${JSON.stringify(scrapingResult || {}).substring(0, 300)}`);
-      } catch (error) {
-        await OmniBox.log("warn", `[detail] processScraping 失败 resourceId=${resourceId}, error=${error.message}`);
-      }
-    } else {
-      await OmniBox.log("warn", `[detail] 未解析出任何 videoFiles，跳过刮削 resourceId=${resourceId}`);
-    }
-
-    const enriched = await enrichPlaySourcesWithMetadata(sources, resourceId);
-    const playSources = enriched.playSources;
-    scrapeData = enriched.scrapeData;
-
-    await OmniBox.log(
-      "info",
-      `[detail] 刮削回填结束 resourceId=${resourceId}, hasScrapeData=${!!scrapeData}, finalSourceCount=${playSources.length}, totalEpisodeCount=${playSources.reduce((n, s) => n + ((s.episodes || []).length), 0)}`
-    );
+    const { infoId, items } = parseM3u8List(html);
+    const episodes = items.map((item, idx) => ({
+      name: item,
+      playId: buildPlayId({
+        infoId: infoId || ((videoId.match(/(\d+)\.html/) || [])[1] || ""),
+        param: item,
+        referer: url,
+        name: vodName,
+        episodeName: item,
+        subtitleBase: `${BASE_URL}/info/subtitle/${infoId || ((videoId.match(/(\d+)\.html/) || [])[1] || "")}/${item}`,
+      }),
+    }));
 
     const vod = {
-      vod_id: text(item.vod_id),
-      vod_name: text(scrapeData?.title || item.vod_name),
-      vod_pic: scrapeData?.posterPath ? `https://image.tmdb.org/t/p/w500${scrapeData.posterPath}` : fixUrl(item.vod_pic),
-      vod_remarks: text(item.vod_remarks),
-      vod_year: text((scrapeData?.releaseDate || item.vod_year || "").slice?.(0, 4) || item.vod_year || ""),
-      vod_area: text(item.vod_area),
-      vod_lang: text(item.vod_lang),
-      vod_director: text(item.vod_director || scrapeData?.credits?.crew?.filter?.((x) => x.job === "Director").map?.((x) => x.name).join(",") || ""),
-      vod_actor: text(item.vod_actor || scrapeData?.credits?.cast?.slice?.(0, 8).map?.((x) => x.name).join(",") || ""),
-      vod_class: text(item.vod_class || inferTypeName(mainTypeId, item.type_name || "")),
-      vod_content: text(scrapeData?.overview || item.vod_content).replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim(),
-      vod_play_sources: playSources,
-      vod_douban_score: text(scrapeData?.voteAverage != null ? Number(scrapeData.voteAverage).toFixed(1) : (item.vod_douban_score || ""))
+      vod_id: videoId,
+      vod_name: vodName,
+      vod_pic: vodPic,
+      vod_year: vodYear,
+      vod_director: vodDirector,
+      vod_actor: vodActor,
+      vod_content: vodContent,
+      vod_play_sources: episodes.length ? [{ name: "PPnix", episodes }] : undefined,
     };
 
-    await OmniBox.log(
-      "info",
-      `[detail] 最终返回 videoId=${videoId}, vodName=${vod.vod_name}, vodYear=${vod.vod_year}, vodScore=${vod.vod_douban_score}, hasPoster=${!!vod.vod_pic}, hasContent=${!!vod.vod_content}`
-    );
-
+    OmniBox.log("info", `[detail] infoId=${infoId}, episodes=${episodes.length}`);
     return { list: [vod] };
   } catch (error) {
-    await OmniBox.log("error", `detail 失败: ${error.message}`);
+    OmniBox.log("error", `[detail] 失败: ${error.message}`);
     return { list: [] };
+  }
+}
+
+async function search(params, context) {
+  try {
+    const keyword = text(params.keyword || params.wd || "");
+    const page = parseInt(params.page || "1", 10) || 1;
+    if (!keyword) return { list: [], page: 1, pagecount: 0, total: 0 };
+
+    const encoded = encodeURIComponent(keyword);
+    const sortSuffix = page <= 1 ? "" : `-page-${page}`;
+    const path = `${LANG_PATH}/search/${encoded}--.html${sortSuffix}`;
+    const { html } = await requestPage(path);
+    const $ = cheerio.load(html);
+
+    const list = mapListItems($, ".lists-content > ul > li, .lists .lists-content ul li")
+      .filter((item) => /\/(movie|tv)\/\d+\.html/.test(item.vod_id));
+
+    OmniBox.log("info", `[search] keyword=${keyword}, page=${page}, list=${list.length}`);
+    return {
+      list,
+      page,
+      pagecount: page,
+      total: list.length,
+    };
+  } catch (error) {
+    OmniBox.log("error", `[search] 失败: ${error.message}`);
+    return { list: [], page: 1, pagecount: 0, total: 0 };
   }
 }
 
 async function play(params, context) {
   try {
-    const playId = text(params?.playId || "");
-    const meta = b64Decode(playId);
-    const url = fixUrl(meta.url || "");
-    const resourceId = text(meta.resourceId || "");
-    const fileId = text(meta.fileId || "");
-    const vodId = text(meta.vodId || "");
-    const title = text(meta.name || params?.title || "");
-    const epName = text(meta.epName || "");
-
-    await OmniBox.log(
-      "info",
-      `[play] 开始处理 vodId=${vodId}, resourceId=${resourceId}, fileId=${fileId}, title=${title}, epName=${epName}, hasUrl=${!!url}`
-    );
-
-    if (!url) {
-      await OmniBox.log("warn", `[play] playId 无法解出有效 URL, playId=${playId.slice(0, 120)}`);
-      return {
-        urls: [],
-        parse: 1,
-        header: {
-          "User-Agent": UA,
-          "Referer": `${HOST}/`
-        },
-        danmaku: []
-      };
+    const meta = parsePlayId(params.playId || "");
+    const infoId = text(meta.infoId || "");
+    const param = text(meta.param || "");
+    if (!infoId || !param) {
+      throw new Error("playId 参数不完整");
     }
 
-    let danmaku = [];
-    let scrapeData = null;
-    let mapping = null;
+    const referer = text(meta.referer || `${BASE_URL}${LANG_PATH}/`);
+    const from = text(context?.from || "") || "unknown";
+    const shouldUseLeanHeader = from === "tvbox";
+    const cfCookie = shouldUseLeanHeader ? "" : await ensureCfCookie(false, referer);
+    const header = shouldUseLeanHeader ? {} : {
+      Referer: referer,
+      Origin: BASE_URL,
+      "User-Agent": USER_AGENT,
+      ...buildCookieHeader(cfCookie),
+    };
 
-    if (resourceId && fileId) {
+    const sourceUrl = `${BASE_URL}/info/m3u8/${infoId}/${encodeURIComponent(param)}.m3u8`;
+    const episodeName = text(meta.episodeName || param || "播放");
+    const subtitles = PPNIX_ENABLE_SUBTITLES ? buildSubtitleSelector(infoId, param) : [];
+
+    if (from === "tvbox") {
       try {
-        await OmniBox.log("info", `[play] 开始读取刮削元数据 resourceId=${resourceId}, fileId=${fileId}`);
-        const metadata = await OmniBox.getScrapeMetadata(resourceId);
-        scrapeData = metadata?.scrapeData || null;
-        const mappings = Array.isArray(metadata?.videoMappings) ? metadata.videoMappings : [];
-        mapping = mappings.find((m) => String(m?.fileId || "") === fileId) || null;
-
-        await OmniBox.log(
-          "info",
-          `[play] 元数据读取完成 resourceId=${resourceId}, hasScrapeData=${!!scrapeData}, mappingCount=${mappings.length}, mappingMatched=${!!mapping}`
-        );
-
-        const fileName = buildDanmakuFileName(scrapeData, mapping, title, epName);
-        await OmniBox.log("info", `[play] 构造弹幕匹配文件名 fileName=${fileName}`);
-
-        if (fileName) {
-          danmaku = await OmniBox.getDanmakuByFileName(fileName);
-          await OmniBox.log("info", `[play] 弹幕匹配完成 fileName=${fileName}, danmakuCount=${Array.isArray(danmaku) ? danmaku.length : 0}`);
-        }
+        const rawM3u8 = await fetchText(sourceUrl, {});
+        const rewritten = rewritePpnixM3u8ForTvbox(rawM3u8);
+        const finalUrl = buildM3u8DataUrl(rewritten);
+        OmniBox.log("info", `[play] 返回 tvbox 专用内联 m3u8: infoId=${infoId}, param=${param}, from=${from}, leanHeader=${shouldUseLeanHeader ? "yes" : "no"}, cookie=${cfCookie ? "yes" : "no"}, subtitles=${subtitles.length}`);
+        return {
+          urls: [{ name: episodeName, url: finalUrl }],
+          header,
+          parse: 0,
+          danmaku: [],
+          subtitles};
       } catch (error) {
-        await OmniBox.log("warn", `[play] 弹幕匹配失败: ${error.message}`);
+        OmniBox.log("warn", `[play] tvbox 内联 m3u8 失败，回退原始地址: ${error.message}`);
       }
-    } else {
-      await OmniBox.log("warn", `[play] 缺少 resourceId 或 fileId，跳过弹幕匹配 resourceId=${resourceId}, fileId=${fileId}`);
     }
 
-    const parse = /\.(m3u8|mp4|flv|webm)(\?|$)/i.test(url) ? 0 : 1;
-    const header = {
-      "User-Agent": UA,
-      "Referer": `${HOST}/`
-    };
-
-    await OmniBox.log("info", `[play] 播放地址已确定 parse=${parse}, url=${url.slice(0, 200)}`);
-
-    try {
-      const historyPayload = {
-        vodId: vodId || resourceId || title,
-        title: title || vodId,
-        episode: playId,
-        episodeName: mapping?.episodeName || epName || undefined,
-        episodeNumber: mapping?.episodeNumber != null ? mapping.episodeNumber : undefined,
-        pic: scrapeData?.posterPath ? `https://image.tmdb.org/t/p/w500${scrapeData.posterPath}` : undefined,
-        playUrl: url,
-        playHeader: header
-      };
-      await OmniBox.log("info", `[play] 准备写入观看记录 vodId=${historyPayload.vodId}, episodeName=${historyPayload.episodeName || ""}, episodeNumber=${historyPayload.episodeNumber ?? ""}`);
-      await OmniBox.addPlayHistory(historyPayload);
-      await OmniBox.log("info", `[play] 观看记录写入完成 vodId=${historyPayload.vodId}`);
-    } catch (error) {
-      await OmniBox.log("warn", `[play] 添加观看记录失败: ${error.message}`);
+    if (PPNIX_REWRITE_M3U8) {
+      try {
+        const rawM3u8 = await fetchText(sourceUrl, header);
+        const rewritten = rewritePpnixM3u8LikeWeb(rawM3u8);
+        const finalUrl = buildM3u8DataUrl(rewritten);
+        OmniBox.log("info", `[play] 返回重写 data-url: infoId=${infoId}, param=${param}, from=${from}, leanHeader=${shouldUseLeanHeader ? "yes" : "no"}, cookie=${cfCookie ? "yes" : "no"}, subtitles=${subtitles.length}`);
+        return {
+          urls: [{ name: episodeName, url: finalUrl }],
+          header,
+          parse: 0,
+          danmaku: [],
+          subtitles};
+      } catch (error) {
+        OmniBox.log("warn", `[play] 官网链路重写失败，回退原始地址: ${error.message}`);
+      }
     }
 
+    OmniBox.log("info", `[play] 返回原始 m3u8: infoId=${infoId}, param=${param}, from=${from}, leanHeader=${shouldUseLeanHeader ? "yes" : "no"}, cookie=${cfCookie ? "yes" : "no"}, subtitles=${subtitles.length}`);
     return {
-      urls: [{ name: epName || meta.flag || "播放", url }],
-      parse,
+      urls: [{ name: episodeName, url: sourceUrl }],
       header,
-      danmaku: Array.isArray(danmaku) ? danmaku : []
-    };
+      parse: 0,
+      danmaku: [],
+      subtitles};
   } catch (error) {
-    await OmniBox.log("error", `play 失败: ${error.message}`);
-    return {
-      urls: [],
-      parse: 1,
-      header: {
-        "User-Agent": UA,
-        "Referer": `${HOST}/`
-      },
-      danmaku: []
-    };
+    OmniBox.log("error", `[play] 失败: ${error.message}`);
+    return { urls: [], header: {}, parse: 1, danmaku: [] };
   }
 }
 
-module.exports = { home, category, search, detail, play };
+module.exports = { home, category, detail, search, play };
 runner.run(module.exports);
 
 });
 
-_load(8, "瓜子", function (module, exports, require) {
-// @name 瓜子APP
+_load(4, "iKanBot", function (module, exports, require) {
+// @name iKanBot
 // @author 
 // @description 刮削：支持，弹幕：支持，嗅探：支持
-// @version 1.1.0
-// @dependencies: axios, crypto
-// @downloadURL https://gh-proxy.org/https://github.com/Silent1566/OmniBox-Spider/raw/refs/heads/main/影视/采集/瓜子.js
+// @dependencies: axios, cheerio
+// @version 1.0.3
+// @downloadURL https://gh-proxy.org/https://github.com/Silent1566/OmniBox-Spider/raw/refs/heads/main/影视/采集/iKanBot.js
+
 
 /**
  * ============================================================================
- * 瓜子APP - OmniBox 爬虫脚本
- * ============================================================================
- *
- * 对齐最新 Guazi 协议（2026-07）：动态 token + 新 AES/headers/多域名
+ * iKanBot资源 - OmniBox 爬虫脚本
  * ============================================================================
  */
-
-const OmniBox = require("omnibox_sdk");
-const crypto = require("crypto");
 const axios = require("axios");
-const https = require("https");
+const cheerio = require("cheerio");
 const http = require("http");
-const fs = require("fs");
-const path = require("path");
-const os = require("os");
+const https = require("https");
+const OmniBox = require("omnibox_sdk");
 
-/**
- * 对齐最新 Guazi Java 源（2026-07）：动态 token + 新 AES/headers
- */
-const API_HOSTS = [
-    "https://apinew.uozvr.com",
-    "https://api.w32z7vtd.com",
-    "https://api.6a7nnf7.com",
-    "https://api.umygrx3.com",
-    "https://api.rmedphk.com",
-];
-
-const AES_KEY = "OITxa5OqAYjhswxx";
-const AES_IV = "rCMNwZASNBKZ8mXV";
-const DEVICE_OLD_KEY = "aLFBMWpxBrIDAD1Si/KVvm41";
-const RSA_PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
-MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDUM5+/y8sPsWkd1/RQS64X259E
-UwxFXFE5HlA65MqrxnPs0JqoSRojSDy5QhwvROlaD6TwRQHKMY2OAZ6SnQeUJsCh
-TEFIR9qUkwrs3/MVUMxjsv6JS6Oe/juclyJGTgVmDhB55EafXsD0SQYVj/QXXsxR
-6ewR5E2kL52yAAD4yQIDAQAB
------END PUBLIC KEY-----`;
-const RSA_PRIVATE_KEY = `-----BEGIN PRIVATE KEY-----
-MIICdgIBADANBgkqhkiG9w0BAQEFAASCAmAwggJcAgEAAoGAe6hKrWLi1zQmjTT1
-ozbE4QdFeJGNxubxld6GrFGximxfMsMB6BpJhpcTouAqywAFppiKetUBBbXwYsYU
-1wNr648XVmPmCMCy4rY8vdliFnbMUj086DU6Z+/oXBdWU3/b1G0DN3E9wULRSwcK
-ZT3wj/cCI1vsCm3gj2R5SqkA9Y0CAwEAAQKBgAJH+4CxV0/zBVcLiBCHvSANm0l7
-HetybTh/j2p0Y1sTXro4ALwAaCTUeqdBjWiLSo9lNwDHFyq8zX90+gNxa7c5EqcW
-V9FmlVXr8VhfBzcZo1nXeNdXFT7tQ2yah/odtdcx+vRMSGJd1t/5k5bDd9wAvYdI
-DblMAg+wiKKZ5KcdAkEA1cCakEN4NexkF5tHPRrR6XOY/XHfkqXxEhMqmNbB9U34
-saTJnLWIHC8IXys6Qmzz30TtzCjuOqKRRy+FMM4TdwJBAJQZFPjsGC+RqcG5UvVM
-iMPhnwe/bXEehShK86yJK/g/UiKrO87h3aEu5gcJqBygTq3BBBoH2md3pr/W+hUM
-WBsCQQChfhTIrdDinKi6lRxrdBnn0Ohjg2cwuqK5zzU9p/N+S9x7Ck8wUI53DKm8
-jUJE8WAG7WLj/oCOWEh+ic6NIwTdAkEAj0X8nhx6AXsgCYRql1klbqtVmL8+95KZ
-K7PnLWG/IfjQUy3pPGoSaZ7fdquG8bq8oyf5+dzjE/oTXcByS+6XRQJAP/5ciy1b
-L3NhUhsaOVy55MHXnPjdcTX0FaLi+ybXZIfIQ2P4rb19mVq1feMbCXhz+L1rG8oa
-t5lYKfpe8k83ZA==
------END PRIVATE KEY-----`;
-
-const PLAY_UA = "Lavf/57.83.100";
-const PLAY_REFERER = "http://WJiZxLXA2.com/";
-const AUTH_FILE = process.env.GUAZI_AUTH_FILE || path.join(os.tmpdir(), "guazi_auth.json");
+// ========== 全局配置 ==========
+const ikanbotConfig = {
+    host: "https://www1.ikanbot.com",
+    headers: {
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 13_2_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.0.3 Mobile/15E148 Safari/604.1"
+    }
+};
 const DANMU_API = process.env.DANMU_API || "";
 
-const state = {
-    apiHost: API_HOSTS[0],
-    token: "",
-    tokenId: "",
-    deviceId: "",
-    deviceKey: "",
-    registered: false,
-    tokenReady: false,
-    hostReady: false,
-};
+const axiosInstance = axios.create({
+    timeout: 15000,
+    httpsAgent: new https.Agent({ keepAlive: true, rejectUnauthorized: false }),
+    httpAgent: new http.Agent({ keepAlive: true })
+});
+
+const PAGE_LIMIT = 20;
 
 /**
- * 分类配置
- */
-const CLASSES = [
-    { type_id: "1", type_name: "电影" },
-    { type_id: "2", type_name: "电视剧" },
-    { type_id: "4", type_name: "动漫" },
-    { type_id: "3", type_name: "综艺" },
-    { type_id: "64", type_name: "短剧" }
-];
-
-/**
- * Java SUB_MAP
- */
-const SUB_MAP = {
-    "1": "5",
-    "2": "12",
-    "3": "30",
-    "4": "22",
-    "64": "",
-    "5": "0",
-};
-
-/**
- * 筛选配置
- */
-const FILTERS = {
-    '1': [
-        {
-            key: 'year',
-            name: '年份',
-            init: '0',
-            value: [
-                { name: '全部', value: '0' },
-                { name: '2026', value: '2026' },
-                { name: '2025', value: '2025' },
-                { name: '2024', value: '2024' },
-                { name: '2023', value: '2023' },
-                { name: '2022', value: '2022' },
-                { name: '2021', value: '2021' },
-                { name: '2020', value: '2020' },
-                { name: '2019', value: '2019' },
-                { name: '2018', value: '2018' },
-                { name: '2017', value: '2017' },
-                { name: '2016', value: '2016' },
-                { name: '2015', value: '2015' },
-                { name: '2014', value: '2014' },
-                { name: '2013', value: '2013' },
-                { name: '2012', value: '2012' },
-                { name: '2011', value: '2011' },
-                { name: '2010', value: '2010' },
-                { name: '2009', value: '2009' },
-                { name: '2008', value: '2008' },
-                { name: '2007', value: '2007' },
-                { name: '2006', value: '2006' },
-                { name: '2005', value: '2005' },
-                { name: '更早', value: '2004' }
-            ]
-        },
-        {
-            key: 'area',
-            name: '地区',
-            init: '0',
-            value: [
-                { name: '全部', value: '0' },
-                { name: '大陆', value: '大陆' },
-                { name: '香港', value: '香港' },
-                { name: '台湾', value: '台湾' },
-                { name: '美国', value: '美国' },
-                { name: '韩国', value: '韩国' },
-                { name: '日本', value: '日本' },
-                { name: '英国', value: '英国' },
-                { name: '法国', value: '法国' },
-                { name: '泰国', value: '泰国' },
-                { name: '印度', value: '印度' },
-                { name: '其他', value: '其他' }
-            ]
-        },
-        {
-            key: 'sort',
-            name: '排序',
-            init: 'd_id',
-            value: [
-                { name: '最新', value: 'd_id' },
-                { name: '最热', value: 'd_hits' },
-                { name: '推荐', value: 'd_score' }
-            ]
-        }
-    ],
-    '2': [
-        {
-            key: 'year',
-            name: '年份',
-            init: '0',
-            value: [
-                { name: '全部', value: '0' },
-                { name: '2026', value: '2026' },
-                { name: '2025', value: '2025' },
-                { name: '2024', value: '2024' },
-                { name: '2023', value: '2023' },
-                { name: '2022', value: '2022' },
-                { name: '2021', value: '2021' },
-                { name: '2020', value: '2020' },
-                { name: '2019', value: '2019' },
-                { name: '2018', value: '2018' },
-                { name: '2017', value: '2017' },
-                { name: '2016', value: '2016' },
-                { name: '2015', value: '2015' },
-                { name: '2014', value: '2014' },
-                { name: '2013', value: '2013' },
-                { name: '2012', value: '2012' },
-                { name: '2011', value: '2011' },
-                { name: '2010', value: '2010' },
-                { name: '2009', value: '2009' },
-                { name: '2008', value: '2008' },
-                { name: '2007', value: '2007' },
-                { name: '2006', value: '2006' },
-                { name: '2005', value: '2005' },
-                { name: '更早', value: '2004' }
-            ]
-        },
-        {
-            key: 'area',
-            name: '地区',
-            init: '0',
-            value: [
-                { name: '全部', value: '0' },
-                { name: '大陆', value: '大陆' },
-                { name: '香港', value: '香港' },
-                { name: '台湾', value: '台湾' },
-                { name: '美国', value: '美国' },
-                { name: '韩国', value: '韩国' },
-                { name: '日本', value: '日本' },
-                { name: '英国', value: '英国' },
-                { name: '法国', value: '法国' },
-                { name: '泰国', value: '泰国' },
-                { name: '印度', value: '印度' },
-                { name: '其他', value: '其他' }
-            ]
-        },
-        {
-            key: 'sort',
-            name: '排序',
-            init: 'd_id',
-            value: [
-                { name: '最新', value: 'd_id' },
-                { name: '最热', value: 'd_hits' },
-                { name: '推荐', value: 'd_score' }
-            ]
-        }
-    ],
-    '4': [
-        {
-            key: 'year',
-            name: '年份',
-            init: '0',
-            value: [
-                { name: '全部', value: '0' },
-                { name: '2026', value: '2026' },
-                { name: '2025', value: '2025' },
-                { name: '2024', value: '2024' },
-                { name: '2023', value: '2023' },
-                { name: '2022', value: '2022' },
-                { name: '2021', value: '2021' },
-                { name: '2020', value: '2020' },
-                { name: '2019', value: '2019' },
-                { name: '2018', value: '2018' },
-                { name: '2017', value: '2017' },
-                { name: '2016', value: '2016' },
-                { name: '2015', value: '2015' }
-            ]
-        },
-        {
-            key: 'area',
-            name: '地区',
-            init: '0',
-            value: [
-                { name: '全部', value: '0' },
-                { name: '大陆', value: '大陆' },
-                { name: '日本', value: '日本' },
-                { name: '美国', value: '美国' },
-                { name: '其他', value: '其他' }
-            ]
-        },
-        {
-            key: 'sort',
-            name: '排序',
-            init: 'd_id',
-            value: [
-                { name: '最新', value: 'd_id' },
-                { name: '最热', value: 'd_hits' },
-                { name: '推荐', value: 'd_score' }
-            ]
-        }
-    ],
-    '3': [
-        {
-            key: 'year',
-            name: '年份',
-            init: '0',
-            value: [
-                { name: '全部', value: '0' },
-                { name: '2026', value: '2026' },
-                { name: '2025', value: '2025' },
-                { name: '2024', value: '2024' },
-                { name: '2023', value: '2023' },
-                { name: '2022', value: '2022' }
-            ]
-        },
-        {
-            key: 'area',
-            name: '地区',
-            init: '0',
-            value: [
-                { name: '全部', value: '0' },
-                { name: '大陆', value: '大陆' },
-                { name: '台湾', value: '台湾' },
-                { name: '韩国', value: '韩国' }
-            ]
-        },
-        {
-            key: 'sort',
-            name: '排序',
-            init: 'd_id',
-            value: [
-                { name: '最新', value: 'd_id' },
-                { name: '最热', value: 'd_hits' },
-                { name: '推荐', value: 'd_score' }
-            ]
-        }
-    ],
-    '64': [
-        {
-            key: 'year',
-            name: '年份',
-            init: '0',
-            value: [
-                { name: '全部', value: '0' },
-                { name: '2026', value: '2026' },
-                { name: '2025', value: '2025' },
-                { name: '2024', value: '2024' },
-                { name: '2023', value: '2023' }
-            ]
-        },
-        {
-            key: 'sort',
-            name: '排序',
-            init: 'd_id',
-            value: [
-                { name: '最新', value: 'd_id' },
-                { name: '最热', value: 'd_hits' },
-                { name: '推荐', value: 'd_score' }
-            ]
-        }
-    ]
-};
-
-/**
- * API 路径
- */
-const API_PATHS = {
-    INDEX_LIST: '/App/IndexList/indexList',
-    PLAY_INFO: '/App/IndexPlay/playInfo',
-    VURL_SHOW: '/App/Resource/Vurl/show',
-    VURL_DETAIL: '/App/Resource/VurlDetail/showOne',
-    FIND_MORE: '/App/Index/findMoreVod',
-    SIGN_UP: '/App/Authentication/Device/signUp',
-    SIGN_IN: '/App/Authentication/Device/signIn',
-    REFRESH: '/App/Authentication/Authenticator/refresh'
-};
-
-/**
- * 缓存管理
- */
-const cache = {
-    data: new Map(),
-    ttl: {
-        category: 300000,
-        detail: 600000,
-        play: 300000,
-        search: 60000
-    },
-    get: (key) => {
-        const item = cache.data.get(key);
-        if (!item) return null;
-        if (Date.now() > item.expire) {
-            cache.data.delete(key);
-            return null;
-        }
-        return item.data;
-    },
-    set: (key, data, type = 'category') => {
-        cache.data.set(key, {
-            data,
-            expire: Date.now() + cache.ttl[type]
-        });
-        if (cache.data.size > 200) cache.data.clear();
-    }
-};
-
-/**
- * 日志工具
+ * 日志工具函数
  */
 const logInfo = (message, data = null) => {
-    if (data) {
-        OmniBox.log("info", `[瓜子APP] ${message}: ${JSON.stringify(data)}`);
-    } else {
-        OmniBox.log("info", `[瓜子APP] ${message}`);
-    }
+    const output = data ? `${message}: ${JSON.stringify(data)}` : message;
+    OmniBox.log("info", `[iKanBot-DEBUG] ${output}`);
 };
 
 const logError = (message, error) => {
-    OmniBox.log("error", `[瓜子APP] ${message}: ${error.message || error}`);
+    OmniBox.log("error", `[iKanBot-DEBUG] ${message}: ${error.message || error}`);
 };
 
-const logWarn = (message) => {
-    OmniBox.log("warn", `[瓜子APP] ${message}`);
+const encodeMeta = (obj) => {
+    try {
+        return Buffer.from(JSON.stringify(obj || {}), 'utf8').toString('base64');
+    } catch {
+        return '';
+    }
 };
 
-function stableStringify(value) {
-    if (Array.isArray(value)) return `[${value.map((item) => stableStringify(item)).join(",")}]`;
-    if (!value || typeof value !== "object") return JSON.stringify(value);
-    return `{${Object.keys(value)
-        .sort()
-        .map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`)
-        .join(",")}}`;
-}
-
-function apiJsonStringify(value) {
-    return JSON.stringify(value).replace(/[^\x00-\x7F]/g, (char) => {
-        return `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`;
-    });
-}
-
-function md5Upper(value) {
-    return crypto.createHash("md5").update(String(value)).digest("hex").toUpperCase();
-}
-
-function aesEncryptHex(text, key = AES_KEY, iv = AES_IV) {
-    const cipher = crypto.createCipheriv("aes-128-cbc", Buffer.from(key, "utf8"), Buffer.from(iv, "utf8"));
-    cipher.setAutoPadding(true);
-    return Buffer.concat([cipher.update(String(text), "utf8"), cipher.final()]).toString("hex").toUpperCase();
-}
-
-function aesDecryptHex(hexText, key, iv) {
-    const decipher = crypto.createDecipheriv("aes-128-cbc", Buffer.from(key, "utf8"), Buffer.from(iv, "utf8"));
-    decipher.setAutoPadding(true);
-    return Buffer.concat([
-        decipher.update(Buffer.from(String(hexText || ""), "hex")),
-        decipher.final(),
-    ]).toString("utf8");
-}
-
-function rsaEncrypt(data) {
-    return crypto
-        .publicEncrypt(
-            { key: RSA_PUBLIC_KEY, padding: crypto.constants.RSA_PKCS1_PADDING },
-            Buffer.from(String(data), "utf8")
-        )
-        .toString("base64");
-}
-
-function rsaDecrypt(encryptedText) {
-    const encrypted = Buffer.from(String(encryptedText || ""), "base64");
+const decodeMeta = (str) => {
     try {
-        return crypto
-            .privateDecrypt({ key: RSA_PRIVATE_KEY, padding: crypto.constants.RSA_PKCS1_PADDING }, encrypted)
-            .toString("utf8");
-    } catch (error) {
-        if (!crypto.constants.RSA_NO_PADDING) throw error;
+        const raw = Buffer.from(str || '', 'base64').toString('utf8');
+        return JSON.parse(raw || '{}');
+    } catch {
+        return {};
     }
-    const raw = crypto.privateDecrypt({ key: RSA_PRIVATE_KEY, padding: crypto.constants.RSA_NO_PADDING }, encrypted);
-    if (raw[0] !== 0x00 || raw[1] !== 0x02) throw new Error("响应密钥 RSA padding 不匹配");
-    const split = raw.indexOf(0x00, 2);
-    if (split < 10) throw new Error("响应密钥 RSA padding 无效");
-    return raw.slice(split + 1).toString("utf8");
-}
+};
 
-function loadAuth() {
-    try {
-        if (fs.existsSync(AUTH_FILE)) {
-            const data = JSON.parse(fs.readFileSync(AUTH_FILE, "utf8"));
-            state.token = String(data.token || "");
-            state.tokenId = String(data.tokenId || data.token_id || "");
-            state.deviceId = String(data.deviceId || data.device_id || "");
-            state.deviceKey = String(data.deviceKey || data.device_key || "");
-            state.registered = !!data.registered || !!state.token;
-        }
-    } catch {}
+/**
+ * 图像地址修复 - 保留原版复杂逻辑
+ */
+const fixImageUrl = (imageUrl, baseURL = "", referer = "") => {
+    if (!imageUrl) return '';
 
-    if (state.deviceId && state.deviceKey) return;
+    let url = '';
 
-    state.deviceId = String(864150060000000 + Math.floor(Math.random() * 10000));
-    state.deviceKey = crypto.randomBytes(20).toString("hex").toUpperCase();
-    state.token = "";
-    state.tokenId = "";
-    state.registered = false;
-    saveAuth();
-}
-
-function saveAuth() {
-    try {
-        fs.writeFileSync(
-            AUTH_FILE,
-            JSON.stringify(
-                {
-                    token: state.token,
-                    tokenId: state.tokenId,
-                    deviceId: state.deviceId,
-                    deviceKey: state.deviceKey,
-                    registered: state.registered,
-                },
-                null,
-                2
-            )
-        );
-    } catch (e) {
-        logWarn(`保存认证信息失败: ${e.message}`);
+    if (imageUrl.startsWith('http')) {
+        url = imageUrl;
+    } else if (imageUrl.startsWith('//')) {
+        url = 'https:' + imageUrl;
+    } else if (imageUrl.startsWith('/')) {
+        url = ikanbotConfig.host + imageUrl;
+    } else {
+        url = ikanbotConfig.host + '/' + imageUrl.replace(/^\.?\//, '');
     }
-}
 
-function getHeaders() {
-    return {
-        "User-Agent": PLAY_UA,
-        code: "GZ0369",
-        deviceId: state.deviceId || "",
-        lang: "zh_cn",
-        "Cache-Control": "no-cache",
-        "Content-Type": "application/x-www-form-urlencoded",
-        Version: "2604028",
-        PackageName: "com.ae06aebdbb.y286327f5a.ofe849883320260517",
-        Ver: "3.0.3.2",
-        "api-ver": "3.0.3.2",
-    };
-}
+    const isExternalUrl = !url.includes(ikanbotConfig.host) && url.startsWith('http');
+    const isDouban = url.includes('doubanio.com');
 
-const client = axios.create({
-    timeout: 22000,
-    maxRedirects: 3,
-    httpAgent: new http.Agent({ keepAlive: true }),
-    httpsAgent: new https.Agent({ keepAlive: true, rejectUnauthorized: false }),
-    validateStatus: () => true,
-});
-
-async function findAvailableHost() {
-    for (const host of API_HOSTS) {
+    if (isDouban) {
         try {
-            const res = await axios.head(host, {
-                timeout: 3000,
-                httpsAgent: new https.Agent({ rejectUnauthorized: false }),
-                validateStatus: () => true,
-                headers: { "User-Agent": "Mozilla/5.0" },
-            });
-            if (res.status >= 200 && res.status < 500) {
-                state.apiHost = host;
-                state.hostReady = true;
-                logInfo("选用 API 域名", { host });
-                return host;
+            const finalReferer = referer || 'https://movie.douban.com';
+            const urlWithHeaders = `${url}@Referer=${finalReferer}`;
+            const encodedUrl = encodeURIComponent(urlWithHeaders);
+            const proxyUrl = `${baseURL}/api/proxy/image?url=${encodedUrl}`;
+            // logInfo("图片分组: 豆瓣代理", { input: imageUrl, finalUrl: url, referer: finalReferer, result: proxyUrl });
+            return proxyUrl;
+        } catch (error) {
+            logError("处理豆瓣图片失败", error);
+            return url;
+        }
+    }
+
+    if (isExternalUrl) {
+        try {
+            let finalReferer = referer;
+            if (!finalReferer) {
+                try {
+                    const urlObj = new URL(url);
+                    finalReferer = `${urlObj.protocol}//${urlObj.host}`;
+                } catch {
+                    finalReferer = ikanbotConfig.host;
+                }
             }
-        } catch {}
-    }
-    state.apiHost = API_HOSTS[0];
-    state.hostReady = true;
-    return state.apiHost;
-}
-
-async function ensureHost() {
-    if (!state.hostReady) await findAvailableHost();
-    return state.apiHost;
-}
-
-function applyAuth(result = {}) {
-    const newToken = String(result.token || "");
-    if (!newToken) throw new Error(`Token 获取失败: ${JSON.stringify(result)}`);
-    state.token = newToken;
-    const newTokenId = String(result.app_user_id || result.token_id || "");
-    if (newTokenId) state.tokenId = newTokenId;
-    saveAuth();
-}
-
-async function rawApiRequest(path, params = {}, retry = 0, options = {}) {
-    const authPath = String(path).startsWith("/App/Authentication/");
-    if (!authPath) await ensureToken();
-
-    const host = await ensureHost();
-    const requestParams = { ...(params || {}) };
-    if (Object.prototype.hasOwnProperty.call(requestParams, "token")) requestParams.token = state.token;
-    if (Object.prototype.hasOwnProperty.call(requestParams, "token_id")) requestParams.token_id = state.tokenId;
-
-    const useCache = options.useCache === true && !authPath;
-    const cacheKey = `${host}|${path}|${stableStringify(requestParams)}|${state.tokenId}`;
-    if (useCache) {
-        const cached = cache.get(cacheKey);
-        if (cached) {
-            logInfo("使用缓存数据", { path });
-            return cached;
+            const urlWithHeaders = `${url}@Referer=${finalReferer}`;
+            const encodedUrl = encodeURIComponent(urlWithHeaders);
+            const proxyUrl = `${baseURL}/api/proxy/image?url=${encodedUrl}`;
+            // logInfo("图片分组: 外部代理", { input: imageUrl, finalUrl: url, referer: finalReferer, result: proxyUrl });
+            return proxyUrl;
+        } catch (error) {
+            logError("处理图片 URL 失败", error);
+            return url;
         }
     }
 
-    const jsonParams = apiJsonStringify(requestParams);
-    const requestKey = aesEncryptHex(jsonParams);
-    const time = String(Math.floor(Date.now() / 1000));
-    const keys = rsaEncrypt(JSON.stringify({ iv: AES_IV, key: AES_KEY }));
-    const tokenForSign = state.token || "";
-    const signStr =
-        `token_id=,token=${tokenForSign},phone_type=1,request_key=${requestKey}` +
-        `,app_id=1,time=${time},keys=${keys}*&zvdvdvddbfikkkumtmdwqppp?|4Y!s!2br`;
-    const signature = md5Upper(signStr);
-
-    const body = new URLSearchParams({
-        token: tokenForSign,
-        token_id: "",
-        phone_type: "1",
-        time,
-        phone_model: "xiaomi-25031",
-        keys,
-        request_key: requestKey,
-        signature,
-        app_id: "1",
-        ad_version: "1",
-    }).toString();
-
-    logInfo(`发送API请求`, { url: `${host}${path}`, retry });
-    const res = await client.post(`${host}${path}`, body, { headers: getHeaders() });
-    if (res.status < 200 || res.status >= 400) {
-        throw new Error(`HTTP ${res.status} ${path}`);
-    }
-
-    const response = typeof res.data === "string" ? JSON.parse(res.data) : res.data;
-    if (!response || typeof response !== "object") throw new Error(`空响应 ${path}`);
-
-    if (response.code != null && Number(response.code) !== 200) {
-        if (retry < 1 && !authPath) {
-            state.tokenReady = false;
-            await ensureToken(true);
-            return rawApiRequest(path, params, retry + 1, options);
-        }
-        throw new Error(`请求失败: ${JSON.stringify(response)}`);
-    }
-
-    const encryptedData = response.data || {};
-    if (!encryptedData.keys || !encryptedData.response_key) {
-        throw new Error(`API 返回缺少加密数据: ${path}`);
-    }
-    const keyInfo = JSON.parse(rsaDecrypt(encryptedData.keys));
-    const decrypted = aesDecryptHex(encryptedData.response_key, keyInfo.key, keyInfo.iv);
-    const result = JSON.parse(decrypted);
-    if (useCache) {
-        const cacheType = options.cacheType || "category";
-        cache.set(cacheKey, result, cacheType);
-    }
-    logInfo("API请求成功", { path });
-    return result;
-}
-
-async function signUp() {
-    const result = await rawApiRequest(API_PATHS.SIGN_UP, {
-        new_key: state.deviceKey,
-        old_key: DEVICE_OLD_KEY,
-        phone_type: 1,
-        code: "",
-    });
-    applyAuth(result);
-    state.registered = true;
-    saveAuth();
-}
-
-async function signIn() {
-    const result = await rawApiRequest(API_PATHS.SIGN_IN, {
-        new_key: state.deviceKey,
-        old_key: DEVICE_OLD_KEY,
-    });
-    applyAuth(result);
-}
-
-async function ensureToken(force = false) {
-    if (!force && state.tokenReady && state.token) return;
-    loadAuth();
-    if (!state.token) {
-        if (state.registered) await signIn();
-        else await signUp();
-    }
-    try {
-        applyAuth(await rawApiRequest(API_PATHS.REFRESH, {}));
-    } catch (error) {
-        if (!state.registered) throw error;
-        await signIn();
-    }
-    state.tokenReady = true;
-}
-
-/**
- * API 请求函数（兼容旧调用）
- */
-const apiRequest = async (data, path, cacheType = "category", retries = 1) => {
-    try {
-        return await rawApiRequest(path, data, 0, {
-            useCache: cacheType !== "none",
-            cacheType: cacheType === "none" ? "category" : cacheType,
-        });
-    } catch (e) {
-        if (retries > 0) {
-            logWarn(`API请求失败，重试: ${e.message}`);
-            try {
-                return await rawApiRequest(path, data, 0, {
-                    useCache: false,
-                    cacheType: cacheType === "none" ? "category" : cacheType,
-                });
-            } catch (e2) {
-                logError("API请求最终失败", e2);
-                return null;
-            }
-        }
-        logError("API请求最终失败", e);
-        return null;
-    }
+    // logInfo("图片分组: 直连", { input: imageUrl, finalUrl: url, result: url });
+    return url;
 };
 
-/**
- * 获取分辨率分数（用于排序）
- */
-const getResolutionScore = (res) => {
-    const r = String(res || "").toLowerCase().replace("p", "");
-    if (r === "8k") return 100;
-    if (r === "4k" || r === "2160") return 90;
-    if (r === "1440") return 80;
-    if (r === "1080") return 70;
-    if (r === "720") return 60;
-    if (r === "超清") return 50;
-    if (r === "高清") return 40;
-    if (r === "标清") return 30;
-    return 10;
-};
-
-function parseParamString(value) {
-    const text = String(value || "").replace(/&amp;/g, "&").replace(/^\?/, "");
-    const params = {};
-    for (const [key, val] of new URLSearchParams(text)) {
-        params[key === "vod_d_id" ? "vod_id" : key] = val;
-    }
-    return params;
-}
-
-/**
- * 弹幕工具函数
- */
+// ========== 弹幕工具函数 ==========
 const preprocessTitle = (title) => {
     if (!title) return "";
     return title
@@ -6312,15 +2671,30 @@ const buildFileNameForDanmu = (vodName, episodeTitle) => {
     return vodName;
 };
 
+const buildScrapedEpisodeName = (scrapeData, mapping, originalName) => {
+    if (!mapping || mapping.episodeNumber === 0 || (mapping.confidence && mapping.confidence < 0.5)) {
+        return originalName;
+    }
+    if (mapping.episodeName) {
+        const epName = mapping.episodeNumber + "." + mapping.episodeName;
+        return epName;
+    }
+    if (scrapeData && Array.isArray(scrapeData.episodes)) {
+        const hit = scrapeData.episodes.find((ep) => ep.episodeNumber === mapping.episodeNumber && ep.seasonNumber === mapping.seasonNumber);
+        if (hit?.name) {
+            return `${hit.episodeNumber}.${hit.name}`;
+        }
+    }
+    return originalName;
+};
+
 const buildScrapedDanmuFileName = (scrapeData, scrapeType, mapping, fallbackVodName, fallbackEpisodeName) => {
     if (!scrapeData) {
         return buildFileNameForDanmu(fallbackVodName, fallbackEpisodeName);
     }
-
     if (scrapeType === 'movie') {
         return scrapeData.title || fallbackVodName;
     }
-
     const title = scrapeData.title || fallbackVodName;
     const seasonAirYear = scrapeData.seasonAirYear || '';
     const seasonNumber = mapping?.seasonNumber || 1;
@@ -6349,7 +2723,10 @@ const matchDanmu = async (fileName) => {
         }
 
         const matchData = JSON.parse(response.body);
-        if (!matchData.isMatched) return [];
+        if (!matchData.isMatched) {
+            logInfo("弹幕未匹配到");
+            return [];
+        }
 
         const matches = matchData.matches || [];
         if (matches.length === 0) return [];
@@ -6373,415 +2750,491 @@ const matchDanmu = async (fileName) => {
             name: danmakuName,
             url: `${DANMU_API}/api/v2/comment/${episodeId}?format=xml`,
         }];
-    } catch (e) {
-        logWarn(`弹幕匹配失败: ${e.message}`);
+    } catch (error) {
+        logInfo(`弹幕匹配失败: ${error.message}`);
         return [];
     }
 };
 
-const encodeMeta = (obj) => {
+/**
+ * 获取HTML内容
+ */
+const getHtml = async (url, headers = ikanbotConfig.headers) => {
     try {
-        return Buffer.from(JSON.stringify(obj), 'utf8').toString('base64');
-    } catch {
-        return '';
+        const response = await axiosInstance.get(url, { headers });
+        return response.data;
+    } catch (error) {
+        logError(`获取HTML失败: ${url}`, error);
+        return null;
     }
 };
-
-const decodeMeta = (str) => {
-    try {
-        const raw = Buffer.from(str, 'base64').toString('utf8');
-        return JSON.parse(raw);
-    } catch {
-        return {};
-    }
-};
-
-const extractVodIdForApi = (rawVideoId) => {
-    const text = String(rawVideoId || '').trim();
-    if (!text) return '';
-
-    const decoded = decodeURIComponent(text);
-    const pathMatch = decoded.match(/\/id\/(\d+)\.html/i);
-    if (pathMatch?.[1]) return pathMatch[1];
-
-    const firstPart = decoded.split('/')[0];
-    if (/^\d+$/.test(firstPart)) return firstPart;
-
-    const numMatch = decoded.match(/(\d+)/);
-    return numMatch?.[1] || decoded;
-};
-
-/* ============================================================================
- * OmniBox 接口实现
- * ============================================================================ */
 
 /**
- * 获取首页数据
+ * 提取token逻辑 - 保留原版算法
  */
-async function home(params) {
-    try {
-        logInfo('处理首页请求');
+const extractToken = ($) => {
+    const currentId = $('#current_id').val();
+    let eToken = $('#e_token').val();
+    if (!currentId || !eToken) return '';
+    
+    const idLength = currentId.length;
+    const subId = currentId.substring(idLength - 4, idLength);
+    let keys = [];
+    
+    for (let i = 0; i < subId.length; i++) {
+        const curInt = parseInt(subId[i]);
+        const splitPos = curInt % 3 + 1;
+        keys[i] = eToken.substring(splitPos, splitPos + 8);
+        eToken = eToken.substring(splitPos + 8, eToken.length);
+    }
+    
+    return keys.join('');
+};
 
-        const data = await apiRequest({
-            area: '0',
-            year: '0',
-            pageSize: '100',
-            sort: 'd_id',
-            page: '1'
-        }, API_PATHS.INDEX_LIST, 'category');
-
-        let list = [];
-        if (data?.list) {
-            list = data.list.map(item => ({
-                vod_id: `${item.vod_id}/${item.vod_continu || 0}`,
-                vod_name: item.vod_name,
-                vod_pic: item.vod_pic,
-                vod_remarks: (item.vod_continu || 0) === 0 ? '电影' : `更新至${item.vod_continu}集`
-            }));
+/**
+ * 解析播放源 - 适配 OmniBox 格式
+ */
+const parsePlaySourcesFromIkan = (playFrom, playList, vodName = '', videoId = '') => {
+    // logInfo("开始解析iKanBot播放源", { from: playFrom, list: playList });
+    
+    const playSources = [];
+    if (!playFrom || !playList) return playSources;
+    
+    const froms = playFrom.split('$$$');
+    const urls = playList.split('$$$');
+    
+    for (let i = 0; i < froms.length; i++) {
+        const sourceName = froms[i] || `线路${i + 1}`;
+        const sourceItems = urls[i] ? urls[i].split('#') : [];
+        
+        const episodes = sourceItems.map((item, epIndex) => {
+            const parts = item.split('$');
+            const episodeName = parts[0] || '正片';
+            const actualPlayId = parts[1] || parts[0];
+            const fid = `${videoId}#${i}#${epIndex}`;
+            return {
+                name: episodeName,
+                playId: `${actualPlayId}|||${encodeMeta({ sid: videoId, fid, v: vodName || '', e: episodeName })}`,
+                _fid: fid,
+                _rawName: episodeName,
+            };
+        }).filter(e => e.playId);
+        
+        if (episodes.length > 0) {
+            playSources.push({
+                name: sourceName,
+                episodes: episodes
+            });
         }
+    }
+    
+    // logInfo("播放源解析结果", playSources);
+    return playSources;
+};
 
+// ========== 接口实现 ==========
+
+/**
+ * 首页
+ */
+async function home(params, context) {
+    logInfo("进入首页");
+    
+    try {
+        const baseURL = params?.context?.baseURL || params?.baseURL || "";
+        // 获取分类
+        const classes = [];
+        
+        // 电影分类
+        const movieHtml = await getHtml(ikanbotConfig.host + "/hot/index-movie-热门.html");
+        if (movieHtml) {
+            const $ = cheerio.load(movieHtml);
+            const title = $('title:first').text().split('-')[0].substring(2);
+            classes.push({
+                type_id: "/hot/index-movie-热门.html",
+                type_name: title
+            });
+        }
+        
+        // 电视剧分类
+        const tvHtml = await getHtml(ikanbotConfig.host + "/hot/index-tv-热门.html");
+        if (tvHtml) {
+            const $ = cheerio.load(tvHtml);
+            const title = $('title:first').text().split('-')[0].substring(2);
+            classes.push({
+                type_id: "/hot/index-tv-热门.html",
+                type_name: title
+            });
+        }
+        
+        // 获取首页推荐
+        const html = await getHtml(ikanbotConfig.host);
+        const list = [];
+        
+        if (html) {
+            const $ = cheerio.load(html);
+            const items = $('div.v-list a.item');
+            
+            items.each((_, item) => {
+                const img = $(item).find('img:first');
+                const imgSrc = img.attr('data-src') || img.attr('src') || '';
+                
+                list.push({
+                    vod_id: $(item).attr('href'),
+                    vod_name: img.attr('alt') || $(item).find('.title').text() || '未知标题',
+                    vod_pic: fixImageUrl(imgSrc, context.baseURL),
+                    vod_remarks: $(item).find('.label').text() || ''
+                });
+            });
+        }
+        
         return {
-            class: CLASSES,
-            filters: FILTERS,
-            list
+            class: classes,
+            list: list.slice(0, 20)
         };
-    } catch (error) {
-        logError('获取首页数据失败', error);
-        return {
-            class: [],
-            filters: {},
-            list: []
-        };
+    } catch (e) {
+        logError("首页获取失败", e);
+        return { class: [], list: [] };
     }
 }
 
 /**
- * 获取分类数据
+ * 分类列表
  */
-async function category(params) {
+async function category(params, context) {
+    const { categoryId, page } = params;
+    const pg = parseInt(page) || 1;
+    const baseURL = context?.baseURL || params?.baseURL || "";
+    
+    logInfo(`请求分类: ${categoryId}, 页码: ${pg}`);
+    
     try {
-        const categoryId = params.categoryId;
-        const page = params.page || 1;
-        const filters = params.filters || {};
-
-        if (!categoryId) {
-            throw new Error("分类ID不能为空");
+        const link = ikanbotConfig.host + categoryId.replace('.html', pg > 1 ? `-p-${pg}.html` : '.html');
+        const html = await getHtml(link);
+        
+        if (!html) {
+            return { list: [], page: pg, pagecount: 1 };
         }
-
-        const area = filters.area || '0';
-        const year = filters.year || '0';
-        const sort = filters.sort || 'd_id';
-        const tid = String(categoryId);
-
-        logInfo('获取分类列表', { categoryId, page, area, year, sort });
-
-        const data = await apiRequest({
-            area: area,
-            year: year,
-            pageSize: "20",
-            sort: sort,
-            page: page.toString(),
-            tid: tid,
-            sub: SUB_MAP[tid] != null ? SUB_MAP[tid] : "0",
-        }, API_PATHS.INDEX_LIST, 'category');
-
-        if (!data || !data.list) {
-            logWarn('分类列表数据为空');
-            return { list: [], page: page, pagecount: 0 };
-        }
-
-        const totalPage = parseInt(data.totalPage || 0);
-
-        const list = data.list.map(item => ({
-            vod_id: `${item.vod_id}/${item.vod_continu || 0}`,
-            vod_name: item.vod_name,
-            vod_pic: item.vod_pic,
-            vod_remarks: (item.vod_continu || 0) === 0 ? '电影' : `更新至${item.vod_continu}集`
-        }));
-
-        logInfo('分类列表获取成功', { count: list.length });
-
+        
+        const $ = cheerio.load(html);
+        const items = $('div.v-list a.item');
+        const list = [];
+        
+        items.each((_, item) => {
+            const img = $(item).find('img:first');
+            const imgSrc = img.attr('data-src') || img.attr('src') || '';
+            
+            list.push({
+                vod_id: $(item).attr('href'),
+                vod_name: img.attr('alt') || $(item).text().trim(),
+                vod_pic: fixImageUrl(imgSrc, baseURL),
+                vod_remarks: $(item).find('.label').text() || ''
+            });
+        });
+        
         return {
             list: list,
-            page: parseInt(page),
-            pagecount: totalPage === 0 ? 999 : totalPage
+            page: pg,
+            pagecount: list.length >= PAGE_LIMIT ? pg + 1 : pg
         };
-    } catch (error) {
-        logError('获取分类数据失败', error);
-        return {
-            page: 1,
-            pagecount: 0,
-            list: []
-        };
+    } catch (e) {
+        logError("分类请求失败", e);
+        return { list: [], page: pg, pagecount: 0 };
     }
 }
 
 /**
- * 搜索视频
+ * 详情页
  */
-async function search(params) {
+async function detail(params, context) {
+    const videoId = params.videoId;
+    const baseURL = context?.baseURL || params?.baseURL || "";
+    logInfo(`请求详情 ID: ${videoId}`);
+    
     try {
-        const keyword = params.keyword || params.wd || "";
-        const page = params.page || 1;
-
-        if (!keyword) {
-            return {
-                page: 1,
-                pagecount: 0,
-                list: []
-            };
-        }
-
-        logInfo('执行搜索', { keyword, page });
-
-        const data = await apiRequest({
-            keywords: keyword,
-            order_val: "1",
-            page: page.toString()
-        }, API_PATHS.FIND_MORE, 'search');
-
-        if (!data || !data.list) {
-            logWarn('搜索结果为空');
-            return { list: [], page: page, pagecount: 0 };
-        }
-
-        const totalPage = parseInt(data.totalPage || 0);
-
-        const filteredList = data.list
-            .filter(item => item.vod_name && item.vod_name.toLowerCase().includes(keyword.toLowerCase()))
-            .map(item => ({
-                vod_id: `${item.vod_id}/${item.vod_continu || 0}`,
-                vod_name: item.vod_name,
-                vod_pic: item.vod_pic,
-                vod_remarks: (item.vod_continu || 0) === 0 ? '电影' : `更新至${item.vod_continu}集`
-            }));
-
-        logInfo('搜索完成(已过滤)', { keyword, count: filteredList.length });
-
-        return {
-            list: filteredList,
-            page: parseInt(page),
-            pagecount: totalPage === 0 ? 1 : totalPage
-        };
-    } catch (error) {
-        logError('搜索视频失败', error);
-        return {
-            page: 1,
-            pagecount: 0,
-            list: []
-        };
-    }
-}
-
-/**
- * 获取视频详情
- */
-async function detail(params) {
-    try {
-        const videoId = params.videoId;
-
-        if (!videoId) {
-            throw new Error("视频ID不能为空");
-        }
-
-        logInfo('获取视频详情', { videoId });
-
-        const ids = Array.isArray(videoId) ? videoId : [videoId];
-        const results = [];
-
-        await Promise.all(ids.map(async (idStr) => {
-            try {
-                const videoIdForScrape = String(idStr || '');
-                const vodId = extractVodIdForApi(idStr);
-
-                await ensureToken();
-
-                const [detailData, playData] = await Promise.all([
-                    apiRequest({
-                        token_id: state.tokenId,
-                        vod_id: vodId,
-                        mobile_time: Math.floor(Date.now() / 1000).toString(),
-                        token: state.token
-                    }, API_PATHS.PLAY_INFO, 'detail'),
-                    apiRequest({
-                        vurl_cloud_id: "2",
-                        vod_d_id: vodId
-                    }, API_PATHS.VURL_SHOW, 'detail')
-                ]);
-
-                if (!detailData?.vodInfo) {
-                    logWarn(`视频${vodId}详情为空`);
-                    return;
-                }
-
-                const vod = detailData.vodInfo;
-
-                const vodPlaySources = [];
-                const scrapeCandidates = [];
-                if (playData?.list) {
-                    playData.list.forEach((item, index) => {
-                        if (!item.play) return;
-
-                        const resolutions = [];
-                        const params = [];
-
-                        for (const [key, val] of Object.entries(item.play)) {
-                            if (val.param) {
-                                resolutions.push(key);
-                                params.push(val.param);
-                            }
-                        }
-
-                        if (params.length > 0) {
-                            resolutions.sort((a, b) => getResolutionScore(b) - getResolutionScore(a));
-                            const playName = playData.list.length === 1
-                                ? (vod.vod_name || '正片')
-                                : (item.name || (index + 1).toString());
-                            const playUrl = `${params[0]}||${resolutions.join('@')}`;
-
-                            if (vodPlaySources.length === 0) {
-                                vodPlaySources.push({
-                                    name: '瓜子专线',
-                                    episodes: []
-                                });
-                            }
-
-                            const playIdForSource = `${playUrl}|||${encodeMeta({ v: vod.vod_name || '', e: playName, sid: `${videoIdForScrape}#${index}`, fid: `${videoIdForScrape}#${index}` })}`;
-
-                            vodPlaySources[0].episodes.push({
-                                name: playName,
-                                playId: playIdForSource
-                            });
-
-                            scrapeCandidates.push({
-                                fid: `${videoIdForScrape}#${index}`,
-                                file_id: `${videoIdForScrape}#${index}`,
-                                file_name: playName,
-                                name: playName,
-                                format_type: 'video'
-                            });
-                        }
-                    });
-                }
-
-                let scrapeData = null;
-                let videoMappings = [];
-                if (scrapeCandidates.length > 0) {
-                    try {
-                        const scrapingResult = await OmniBox.processScraping(videoId, vod.vod_name || '', vod.vod_name || '', scrapeCandidates);
-                        OmniBox.log('info', `[瓜子APP] 刮削处理完成,结果: ${JSON.stringify(scrapingResult || {}).substring(0, 200)}`);
-                        const metadata = await OmniBox.getScrapeMetadata(videoId);
-                        scrapeData = metadata?.scrapeData || null;
-                        videoMappings = metadata?.videoMappings || [];
-                        logInfo('刮削完成', { vodId, mappingCount: videoMappings.length, hasScrapeData: !!scrapeData });
-                    } catch (e) {
-                        logWarn(`刮削处理失败: ${e.message}`);
-                    }
-                }
-
-                if (vodPlaySources.length > 0 && Array.isArray(vodPlaySources[0].episodes) && vodPlaySources[0].episodes.length > 0) {
-                    vodPlaySources[0].episodes.forEach((ep) => {
-                        const playIdRaw = ep.playId || '';
-                        const metaRaw = playIdRaw.includes('|||') ? playIdRaw.split('|||')[1] : '';
-                        const meta = decodeMeta(metaRaw || '');
-                        const mapping = videoMappings.find((m) => m?.fileId === meta.fid);
-                        if (mapping?.episodeName) {
-                            const oldName = ep.name;
-                            ep.name = mapping.episodeNumber + "." + mapping.episodeName;
-                            if (oldName !== ep.name) {
-                                OmniBox.log('info', `[瓜子APP] 应用刮削后源文件名: ${oldName} -> ${ep.name}`);
-                            }
-                        }
-                    });
-
-                    const hasEpisodeNumber = vodPlaySources[0].episodes.some((ep) => {
-                        const playIdRaw = ep.playId || '';
-                        const metaRaw = playIdRaw.includes('|||') ? playIdRaw.split('|||')[1] : '';
-                        const meta = decodeMeta(metaRaw || '');
-                        const mapping = videoMappings.find((m) => m?.fileId === meta.fid);
-                        return mapping && mapping.episodeNumber !== undefined && mapping.episodeNumber !== null;
-                    });
-
-                    if (hasEpisodeNumber) {
-                        vodPlaySources[0].episodes.sort((a, b) => {
-                            const metaA = decodeMeta((a.playId || '').split('|||')[1] || '');
-                            const metaB = decodeMeta((b.playId || '').split('|||')[1] || '');
-                            const mapA = videoMappings.find((m) => m?.fileId === metaA.fid) || {};
-                            const mapB = videoMappings.find((m) => m?.fileId === metaB.fid) || {};
-                            const seasonA = mapA.seasonNumber || 0;
-                            const seasonB = mapB.seasonNumber || 0;
-                            if (seasonA !== seasonB) return seasonA - seasonB;
-                            const epA = mapA.episodeNumber || 0;
-                            const epB = mapB.episodeNumber || 0;
-                            return epA - epB;
-                        });
-                    }
-                }
-
-                const video = {
-                    vod_id: videoIdForScrape,
-                    vod_name: scrapeData?.title || vod.vod_name,
-                    vod_pic: scrapeData?.posterPath ? `https://image.tmdb.org/t/p/w500${scrapeData.posterPath}` : vod.vod_pic,
-                    vod_year: scrapeData?.releaseDate ? String(scrapeData.releaseDate).substring(0, 4) : vod.vod_year,
-                    vod_area: vod.vod_area,
-                    vod_actor: (scrapeData?.credits?.cast || []).slice(0, 5).map((c) => c?.name).filter(Boolean).join(',') || vod.vod_actor,
-                    vod_director: (scrapeData?.credits?.crew || []).filter((c) => c?.job === 'Director' || c?.department === 'Directing').slice(0, 3).map((c) => c?.name).filter(Boolean).join(',') || '',
-                    vod_content: (scrapeData?.overview || vod.vod_use_content || '').trim(),
-                    vod_play_sources: vodPlaySources.length > 0 ? vodPlaySources : undefined
-                };
-
-                results.push(video);
-            } catch (e) {
-                logError(`获取视频${idStr}详情失败`, e);
+        const html = await getHtml(ikanbotConfig.host + videoId);
+        if (!html) return { list: [] };
+        
+        const $ = cheerio.load(html);
+        const detail = $('div.detail');
+        
+        // 获取封面图片
+        const coverImg = $('div.item-root > img');
+        const coverSrc = coverImg.attr('data-src') || coverImg.attr('src') || '';
+        
+        // 提取token
+        const token = extractToken($);
+        const pureVideoId = videoId.substring(videoId.lastIndexOf('/') + 1);
+        
+        // 获取播放资源
+        const resUrl = ikanbotConfig.host + '/api/getResN?videoId=' + pureVideoId + '&mtype=2&token=' + token;
+        const resResponse = await axiosInstance.get(resUrl, {
+            headers: {
+                ...ikanbotConfig.headers,
+                'Referer': ikanbotConfig.host
             }
+        });
+        
+        const resData = resResponse.data;
+        const apiList = resData.data?.list || [];
+        
+        let playlist = {};
+        let arr = [];
+        
+        // 解析播放源
+        for (const l of apiList) {
+            try {
+                const flagData = JSON.parse(l.resData);
+                for (const f of flagData) {
+                    const from = f.flag;
+                    const urls = f.url;
+                    if (!from || !urls) continue;
+                    if (playlist[from]) continue;
+                    playlist[from] = urls;
+                }
+            } catch (e) {
+                logError('解析播放源失败', e);
+            }
+        }
+        
+        // 排序播放源
+        for (const key in playlist) {
+            if ('kuaikan' === key) {
+                arr.push({ flag: '快看', url: playlist[key], sort: 1 });
+            } else if ('bfzym3u8' === key) {
+                arr.push({ flag: '暴风', url: playlist[key], sort: 2 });
+            } else if ('ffm3u8' === key) {
+                arr.push({ flag: '非凡', url: playlist[key], sort: 3 });
+            } else if ('lzm3u8' === key) {
+                arr.push({ flag: '量子', url: playlist[key], sort: 4 });
+            } else {
+                arr.push({ flag: key, url: playlist[key], sort: 5 });
+            }
+        }
+        
+        arr.sort((a, b) => a.sort - b.sort);
+        
+        // 获取影片基本信息
+        const title = $(detail).find('h2').text().trim();
+        const actor = $(detail).find('h3:nth-child(5)').text();
+        const director = $(detail).find('h3:nth-child(4)').text() || '';
+
+        const playFrom = arr.map(val => val.flag).join("$$$");
+        const playList = arr.map(val => val.url).join("$$$");
+        
+        // 解析为 OmniBox 格式
+        const playSources = parsePlaySourcesFromIkan(playFrom, playList, title, String(videoId || ''));
+
+        // 刮削处理
+        let scrapeData = null;
+        let videoMappings = [];
+        let scrapeType = '';
+        const scrapeCandidates = [];
+
+        for (const source of playSources) {
+            for (const ep of source.episodes || []) {
+                if (!ep._fid) continue;
+                scrapeCandidates.push({
+                    fid: ep._fid,
+                    file_id: ep._fid,
+                    file_name: ep._rawName || ep.name || '正片',
+                    name: ep._rawName || ep.name || '正片',
+                    format_type: 'video',
+                });
+            }
+        }
+
+        if (scrapeCandidates.length > 0) {
+            try {
+                const videoIdForScrape = String(videoId || '');
+                const scrapingResult = await OmniBox.processScraping(videoIdForScrape, title || '', title || '', scrapeCandidates);
+                OmniBox.log('info', `[iKanBot-DEBUG] 刮削处理完成,结果: ${JSON.stringify(scrapingResult || {}).substring(0, 200)}`);
+
+                const metadata = await OmniBox.getScrapeMetadata(videoIdForScrape);
+                scrapeData = metadata?.scrapeData || null;
+                videoMappings = metadata?.videoMappings || [];
+                scrapeType = metadata?.scrapeType || '';
+            } catch (e) {
+                logError('刮削处理失败', e);
+            }
+        }
+
+        for (const source of playSources) {
+            for (const ep of source.episodes || []) {
+                const mapping = videoMappings.find((m) => m?.fileId === ep._fid);
+                if (!mapping) continue;
+                const oldName = ep.name;
+                const newName = buildScrapedEpisodeName(scrapeData, mapping, oldName);
+                if (newName && newName !== oldName) {
+                    ep.name = newName;
+                    OmniBox.log('info', `[iKanBot-DEBUG] 应用刮削后源文件名: ${oldName} -> ${newName}`);
+                }
+                ep._seasonNumber = mapping.seasonNumber;
+                ep._episodeNumber = mapping.episodeNumber;
+            }
+
+            const hasEpisodeNumber = (source.episodes || []).some((ep) => ep._episodeNumber !== undefined && ep._episodeNumber !== null);
+            if (hasEpisodeNumber) {
+                source.episodes.sort((a, b) => {
+                    const seasonA = a._seasonNumber || 0;
+                    const seasonB = b._seasonNumber || 0;
+                    if (seasonA !== seasonB) return seasonA - seasonB;
+                    const episodeA = a._episodeNumber || 0;
+                    const episodeB = b._episodeNumber || 0;
+                    return episodeA - episodeB;
+                });
+            }
+        }
+
+        const normalizedPlaySources = playSources.map((source) => ({
+            name: source.name,
+            episodes: (source.episodes || []).map((ep) => ({
+                name: ep.name,
+                playId: ep.playId,
+            })),
         }));
-
-        logInfo('详情获取成功', { count: results.length });
-
-        return { list: results };
-    } catch (error) {
-        logError('获取视频详情失败', error);
+        
+        const fixedRemarks = '(线路利用网络爬虫技术获取,各线路的版本、清晰度、播放速度等存在差异请自行切换。建议避开晚上高峰时段。)';
+        
+        return {
+            list: [{
+                vod_id: videoId,
+                vod_name: scrapeData?.title || title,
+                vod_pic: scrapeData?.posterPath ? fixImageUrl(`https://image.tmdb.org/t/p/w500${scrapeData.posterPath}`, baseURL) : fixImageUrl(coverSrc, baseURL),
+                vod_content: fixedRemarks,
+                vod_actor: (scrapeData?.credits?.cast || []).slice(0, 5).map((c) => c?.name).filter(Boolean).join(',') || actor,
+                vod_director: (scrapeData?.credits?.crew || []).filter((c) => c?.job === 'Director' || c?.department === 'Directing').slice(0, 3).map((c) => c?.name).filter(Boolean).join(',') || director,
+                vod_remarks: '',
+                vod_play_sources: normalizedPlaySources
+            }]
+        };
+    } catch (e) {
+        logError("详情获取失败", e);
         return { list: [] };
     }
 }
 
 /**
- * 获取播放地址
+ * 搜索 - 保留严格匹配逻辑
+ */
+async function search(params, context) {
+    const wd = params.keyword || params.wd || "";
+    const pg = parseInt(params.page) || 1;
+    const baseURL = context?.baseURL || params?.baseURL || "";
+    
+    logInfo(`搜索关键词: ${wd}, 页码: ${pg}`);
+    
+    try {
+        const link = pg === 1
+            ? ikanbotConfig.host + '/search?q=' + encodeURIComponent(wd)
+            : ikanbotConfig.host + '/search?q=' + encodeURIComponent(wd) + '&p=' + pg;
+        
+        const html = await getHtml(link);
+        if (!html) return { list: [], page: pg, pagecount: 1 };
+        
+        const $ = cheerio.load(html);
+        const items = $('div.media');
+        
+        // 获取所有结果
+        const allResults = [];
+        items.each((_, item) => {
+            const a = $(item).find('a:first');
+            const img = $(item).find('img:first');
+            const imgSrc = img.attr('data-src') || img.attr('src') || '';
+            const remarks = $(item).find('span.label').first().text().trim();
+            const title = img.attr('alt') || a.text().trim();
+            
+            allResults.push({
+                vod_id: a.attr('href'),
+                vod_name: title,
+                vod_pic: fixImageUrl(imgSrc, baseURL),
+                vod_remarks: remarks || '',
+                originalTitle: title
+            });
+        });
+        
+        // 严格过滤:检查标题是否包含完整的搜索关键字
+        const lowerKeyword = wd.toLowerCase().trim();
+        const filteredList = allResults.filter(item => {
+            const lowerTitle = item.vod_name.toLowerCase();
+            
+            // 1. 完全包含关键字
+            if (lowerTitle.includes(lowerKeyword)) {
+                return true;
+            }
+            
+            // 2. 处理可能的关键字分割
+            if (lowerKeyword.length >= 2) {
+                const cleanTitle = lowerTitle.replace(/[·\-_:()()《》【】\s]/g, '');
+                const cleanKeyword = lowerKeyword.replace(/[·\-_:()()《》【】\s]/g, '');
+                
+                if (cleanTitle.includes(cleanKeyword)) {
+                    return true;
+                }
+                
+                // 如果是中文,尝试字符级别匹配
+                if (/[\u4e00-\u9fa5]/.test(lowerKeyword)) {
+                    const keywordChars = cleanKeyword.split('');
+                    return keywordChars.every(char => cleanTitle.includes(char));
+                }
+            }
+            
+            return false;
+        });
+        
+        // 移除用于过滤的字段
+        const finalList = filteredList.map(({ originalTitle, ...rest }) => rest);
+        
+        return {
+            list: finalList,
+            page: pg,
+            pagecount: finalList.length >= PAGE_LIMIT ? pg + 1 : pg
+        };
+    } catch (e) {
+        logError("搜索失败", e);
+        return { list: [], page: pg, pagecount: 0 };
+    }
+}
+
+/**
+ * 播放
  */
 async function play(params) {
+    let playId = params.playId;
+    logInfo(`准备播放 ID: ${playId}`);
+    let vodName = "";
+    let episodeName = "";
+    let playMeta = {};
+    let scrapedDanmuFileName = "";
+
+    if (playId && playId.includes('|||')) {
+        const [mainPlayId, metaB64] = playId.split('|||');
+        playId = mainPlayId || '';
+        playMeta = decodeMeta(metaB64 || '');
+        vodName = playMeta.v || '';
+        episodeName = playMeta.e || '';
+        logInfo(`解析透传信息 - 视频: ${vodName}, 集数: ${episodeName}`);
+    } else if (playId && playId.includes('|')) {
+        const parts = playId.split('|');
+        playId = parts.shift() || '';
+        vodName = parts.shift() || '';
+        episodeName = parts.join('|') || '';
+        logInfo(`解析旧透传信息 - 视频: ${vodName}, 集数: ${episodeName}`);
+    }
+
     try {
-        let playId = params.playId;
-        let vodName = '';
-        let episodeName = '';
-        let playMeta = {};
-
-        if (!playId) {
-            throw new Error("播放地址ID不能为空");
-        }
-
-        if (playId.includes('|||')) {
-            const [mainPlayId, metaB64] = playId.split('|||');
-            playId = mainPlayId;
-            playMeta = decodeMeta(metaB64 || '');
-            vodName = playMeta.v || '';
-            episodeName = playMeta.e || '';
-        }
-
-        let scrapedDanmuFileName = '';
-        try {
-            const videoIdFromParam = params.vodId ? String(params.vodId) : '';
-            const videoIdFromMeta = playMeta?.sid ? String(playMeta.sid).split('#')[0] : '';
-            const videoId = videoIdFromParam || videoIdFromMeta;
-            const sourceIdByVod = videoId;
-
-            let metadata = null;
-            if (sourceIdByVod) {
-                metadata = await OmniBox.getScrapeMetadata(sourceIdByVod);
-            }
-
+        const sourceVideoId = String(params.vodId || playMeta.sid || '');
+        if (sourceVideoId) {
+            const metadata = await OmniBox.getScrapeMetadata(sourceVideoId);
             if (metadata && metadata.scrapeData) {
                 const mapping = (metadata.videoMappings || []).find((m) => m?.fileId === playMeta?.fid);
-                scrapedDanmuFileName = buildScrapedDanmuFileName(metadata.scrapeData, metadata.scrapeType || '', mapping, vodName, episodeName);
+                scrapedDanmuFileName = buildScrapedDanmuFileName(
+                    metadata.scrapeData,
+                    metadata.scrapeType || '',
+                    mapping,
+                    vodName,
+                    episodeName
+                );
                 if (metadata.scrapeData.title) {
                     vodName = metadata.scrapeData.title;
                 }
@@ -6789,92 +3242,6220 @@ async function play(params) {
                     episodeName = mapping.episodeName;
                 }
             }
-        } catch (e) {
-            logWarn(`读取刮削元数据失败: ${e.message}`);
         }
-
-        logInfo('获取播放地址', { playId: playId });
-
-        const playHeader = {
-            "User-Agent": PLAY_UA,
-            Referer: PLAY_REFERER,
-        };
-
-        const parts = playId.split('||');
-        let playResponse;
-        if (parts.length < 2) {
-            playResponse = {
-                urls: [{ name: '播放', url: playId }],
-                header: playHeader,
-                parse: 0
-            };
-        } else {
-            const paramStr = parts[0];
-            const resolutions = parts[1].split('@');
-
-            const requestParams = parseParamString(paramStr);
-
-            if (resolutions.length > 0) {
-                resolutions.sort((a, b) => getResolutionScore(b) - getResolutionScore(a));
-                requestParams.resolution = resolutions[0];
-            }
-
-            const data = await apiRequest(requestParams, API_PATHS.VURL_DETAIL, 'none');
-
-            const playUrl = data?.url || '';
-
-            logInfo('播放地址获取成功', { url: playUrl });
-
-            playResponse = {
-                urls: [{ name: '播放', url: playUrl }],
-                header: playHeader,
-                parse: 0
-            };
-        }
-
-        if (DANMU_API && vodName) {
-            const fileName = scrapedDanmuFileName || buildFileNameForDanmu(vodName, episodeName);
-            logInfo(`尝试匹配弹幕文件名: ${fileName}`);
-            if (fileName) {
-                const danmakuList = await matchDanmu(fileName);
-                if (danmakuList.length > 0) {
-                    playResponse.danmaku = danmakuList;
-                    logInfo('弹幕已添加到播放响应');
-                }
-            }
-        } else if (!DANMU_API) {
-            logInfo('DANMU_API 未配置，跳过弹幕匹配');
-        }
-
-        return playResponse;
-    } catch (error) {
-        logError('获取播放地址失败', error);
-        return {
-            urls: [],
-            parse: 0
-        };
+    } catch (e) {
+        logInfo(`读取刮削元数据失败: ${e.message}`);
     }
+    
+    // iKanBot 播放地址处理，支持嗅探
+    let playUrl = playId;
+    if (playUrl && !playUrl.startsWith('http')) {
+        playUrl = playUrl.startsWith('/') ? ikanbotConfig.host + playUrl : ikanbotConfig.host + '/' + playUrl;
+    }
+
+    const isDirectPlayable = playUrl && playUrl.match(/\.(m3u8|mp4|flv|avi|mkv|ts)/i);
+    let finalUrl = playUrl;
+    let finalHeader = { ...ikanbotConfig.headers, Referer: ikanbotConfig.host };
+
+    if (!isDirectPlayable && playUrl) {
+        try {
+            const sniffResult = await OmniBox.sniffVideo(playUrl);
+            if (sniffResult && sniffResult.url) {
+                finalUrl = sniffResult.url;
+                finalHeader = sniffResult.header || finalHeader;
+                logInfo("嗅探成功", { url: finalUrl });
+            } else {
+                logInfo("嗅探未返回有效地址");
+            }
+        } catch (e) {
+            logInfo(`嗅探失败: ${e.message}`);
+        }
+    }
+
+    const playResponse = {
+        urls: [{ name: "默认", url: finalUrl }],
+        parse: 0,
+        header: finalHeader
+    };
+
+    if (DANMU_API && vodName) {
+        const fileName = scrapedDanmuFileName || buildFileNameForDanmu(vodName, episodeName);
+        logInfo(`尝试匹配弹幕文件名: ${fileName}`);
+        if (fileName) {
+            const danmakuList = await matchDanmu(fileName);
+            if (danmakuList.length > 0) {
+                playResponse.danmaku = danmakuList;
+                logInfo("弹幕已添加到播放响应");
+            }
+        }
+    } else if (!DANMU_API) {
+        logInfo("DANMU_API 未配置，跳过弹幕匹配");
+    }
+
+    return playResponse;
 }
 
-/* ============================================================================
- * 导出模块
- * ============================================================================ */
+module.exports = { home, category, search, detail, play };
 
-module.exports = {
-    home,
-    category,
-    search,
-    detail,
-    play
-};
-
-// 使用 OmniBox runner
 const runner = require("spider_runner");
 runner.run(module.exports);
 
 });
 
-_load(9, "电影天堂", function (module, exports, require) {
+_load(5, "七味", function (module, exports, require) {
+// @name 七味
+// @author https://github.com/hjdhnx/drpy-node/blob/main/spider/js/%E4%B8%83%E5%91%B3%5B%E4%BC%98%5D.js
+// @description 刮削：支持，弹幕：支持，嗅探：支持
+// @dependencies: axios, cheerio
+// @version 1.3.1
+// @downloadURL https://gh-proxy.org/https://github.com/Silent1566/OmniBox-Spider/raw/refs/heads/main/影视/采集/七味.js
+
+/**
+ * ============================================================================
+ * 七味 (QW)
+ * 站点族：pcmp4 / qwnull / qwmkv / qwfilm / qnmp4 / qnnull / qnhot
+ *
+ * 说明：
+ * - 由旧版 drpy rule 脚本转换为 OmniBox 标准五接口格式
+ * - 保留原站分类筛选 URL 规则与详情页播放线路解析逻辑
+ * - 增强日志输出，便于排查线路、解析和故障切换问题
+ * ============================================================================
+ */
+
+const axios = require("axios");
+const cheerio = require("cheerio");
+const OmniBox = require("omnibox_sdk");
+
+// 弹幕接口地址；留空表示不启用弹幕匹配；示例：https://danmu.example.com
+const DANMU_API = process.env.DANMU_API || "";
+function splitConfigList(value) {
+    return String(value || "")
+        .split(/[;,]/)
+        .map((item) => item.trim())
+        .filter(Boolean);
+}
+
+// 单个网盘链接最多生成多少条可用路线；同时也作为同一种网盘最多处理多少个成功分享的阈值；正整数；默认 3
+const MAX_PAN_VALID_ROUTES = (() => {
+    const raw = String(process.env.MAX_PAN_VALID_ROUTES || "3").trim();
+    const n = parseInt(raw, 10);
+    return Number.isFinite(n) && n > 0 ? n : 3;
+})();
+// 需要展开“本地代理/服务端代理/直连”多路线的网盘类型；分号或逗号分隔；示例：quark;uc
+const DRIVE_TYPE_CONFIG = splitConfigList(process.env.DRIVE_TYPE_CONFIG || "quark;uc");
+// 可供网盘检测与播放使用的路线名称；分号或逗号分隔；示例：本地代理;服务端代理;直连
+const SOURCE_NAMES_CONFIG = splitConfigList(process.env.SOURCE_NAMES_CONFIG || "本地代理;服务端代理;直连");
+// 是否允许外网地址使用服务端代理；填 true 或 false；默认 false
+const EXTERNAL_SERVER_PROXY_ENABLED = String(process.env.EXTERNAL_SERVER_PROXY_ENABLED || "false").toLowerCase() === "true";
+// 网盘线路排序优先级；分号或逗号分隔；示例：baidu;tianyi;quark;uc;115;xunlei;ali;123pan
+const DRIVE_ORDER = splitConfigList(process.env.DRIVE_ORDER || "baidu;tianyi;quark;uc;115;xunlei;ali;123pan").map((s) => s.toLowerCase());
+// 七味网盘文件与刮削元数据缓存时长，单位秒；默认 43200（12 小时）
+const QIWEI_CACHE_EX_SECONDS = Number(process.env.QIWEI_CACHE_EX_SECONDS || 43200);
+const PAN_ROUTE_NAMES = SOURCE_NAMES_CONFIG.slice(0, MAX_PAN_VALID_ROUTES);
+
+// ==================== 全局配置 ====================
+const HOSTS = [
+    "https://www.pcmp4.com",
+    "https://www.qwnull.com",
+    "https://www.qwmkv.com",
+    "https://www.qwfilm.com",
+    "https://www.qnmp4.com",
+    "https://www.qnnull.com",
+    "https://www.qnhot.com",
+];
+
+let currentHostIndex = 0;
+
+const DEFAULT_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+    "Connection": "keep-alive",
+};
+
+const CLASSES = [
+    { type_id: "1", type_name: "电影" },
+    { type_id: "2", type_name: "剧集" },
+    { type_id: "3", type_name: "综艺" },
+    { type_id: "4", type_name: "动漫" },
+    { type_id: "30", type_name: "短剧" },
+];
+
+const FULL_TYPE_OPTIONS = [
+    "剧情", "科幻", "动作", "喜剧", "爱情", "冒险", "儿童", "歌舞", "音乐", "奇幻", "动画", "恐怖", "惊悚", "丧尸", "战争", "传记", "纪录", "犯罪", "悬疑", "西部", "灾难", "古装", "武侠", "家庭", "短片", "校园", "文艺", "运动", "青春", "同性", "励志", "人性", "美食", "女性", "治愈", "历史",
+];
+const FULL_YEAR_OPTIONS = ["2026", "2025", "2024", "2023", "2022", "2021", "2020", "2019", "2018", "2017", "2016", "2015", "2014", "2013", "2012", "2011", "2010"];
+const FULL_AREA_OPTIONS = ["大陆", "香港", "台湾", "日本", "韩国", "泰国", "美国", "英国", "法国", "德国", "印度", "丹麦", "瑞典", "荷兰", "加拿大", "俄罗斯", "意大利", "比利时", "西班牙", "澳大利亚", "其他"];
+const FULL_LANG_OPTIONS = ["国语", "粤语", "英语", "法语", "日语", "韩语", "泰语", "德语", "俄语", "闽南语", "丹麦语", "波兰语", "瑞典语", "印地语", "挪威语", "意大利语", "西班牙语", "无对白", "其他"];
+const FULL_SORT_OPTIONS = [
+    { name: "按时间", value: "time" },
+    { name: "按人气", value: "hits" },
+    { name: "按评分", value: "score" },
+];
+
+function buildFilterOptionList(list = []) {
+    return [{ name: "全部", value: "" }, ...list.map((item) => ({ name: item, value: item }))];
+}
+
+function buildCategoryFilters({ includeType = true, includeYear = true, includeArea = true, includeLang = true } = {}) {
+    const filters = [
+        {
+            key: "sort",
+            name: "排序",
+            init: "time",
+            value: FULL_SORT_OPTIONS,
+        },
+    ];
+    if (includeType) {
+        filters.push({
+            key: "type",
+            name: "类型",
+            init: "",
+            value: buildFilterOptionList(FULL_TYPE_OPTIONS),
+        });
+    }
+    if (includeYear) {
+        filters.push({
+            key: "year",
+            name: "年代",
+            init: "",
+            value: buildFilterOptionList(FULL_YEAR_OPTIONS),
+        });
+    }
+    if (includeArea) {
+        filters.push({
+            key: "area",
+            name: "地区",
+            init: "",
+            value: buildFilterOptionList(FULL_AREA_OPTIONS),
+        });
+    }
+    if (includeLang) {
+        filters.push({
+            key: "lang",
+            name: "语言",
+            init: "",
+            value: buildFilterOptionList(FULL_LANG_OPTIONS),
+        });
+    }
+    return filters;
+}
+
+const FILTERS = {
+    "1": buildCategoryFilters(),
+    "2": buildCategoryFilters(),
+    "3": buildCategoryFilters({ includeYear: false, includeArea: false, includeLang: false }),
+    "4": buildCategoryFilters({ includeArea: false, includeLang: false }),
+    "30": buildCategoryFilters({ includeArea: false, includeLang: false }),
+};
+
+const axiosInstance = axios.create({
+    timeout: 15000,
+    validateStatus: (status) => status >= 200 && status < 500,
+    responseType: "text",
+});
+
+// ==================== 日志工具 ====================
+function logInfo(message, data = null) {
+    const suffix = data == null ? "" : `: ${JSON.stringify(data)}`;
+    OmniBox.log("info", `[七味] ${message}${suffix}`);
+}
+
+function logWarn(message, data = null) {
+    const suffix = data == null ? "" : `: ${JSON.stringify(data)}`;
+    OmniBox.log("warn", `[七味] ${message}${suffix}`);
+}
+
+function logError(message, error) {
+    OmniBox.log("error", `[七味] ${message}: ${error?.message || error}`);
+}
+
+function encodeMeta(obj) {
+    try {
+        return Buffer.from(JSON.stringify(obj || {}), "utf8").toString("base64");
+    } catch {
+        return "";
+    }
+}
+
+function decodeMeta(str) {
+    try {
+        const raw = Buffer.from(str || "", "base64").toString("utf8");
+        return JSON.parse(raw || "{}");
+    } catch {
+        return {};
+    }
+}
+
+function extractEpisode(title) {
+    if (!title) return "";
+    const processedTitle = title.trim();
+    const seMatch = processedTitle.match(/[Ss](?:\d{1,2})?[-._\s]*[Ee](\d{1,3})/i);
+    if (seMatch) return seMatch[1];
+    const cnMatch = processedTitle.match(/第\s*([0-9]+)\s*[集话章节回期]/);
+    if (cnMatch) return cnMatch[1];
+    const epMatch = processedTitle.match(/\b(?:EP|E)[-._\s]*(\d{1,3})\b/i);
+    if (epMatch) return epMatch[1];
+    const bracketMatch = processedTitle.match(/[\[\(【（](\d{1,3})[\]\)】）]/);
+    if (bracketMatch) {
+        const num = bracketMatch[1];
+        if (!["720", "1080", "480"].includes(num)) return num;
+    }
+    return "";
+}
+
+function buildFileNameForDanmu(vodName, episodeTitle) {
+    if (!vodName) return "";
+    if (!episodeTitle || episodeTitle === "正片" || episodeTitle === "播放") {
+        return vodName;
+    }
+    const digits = extractEpisode(episodeTitle);
+    if (digits) {
+        const epNum = parseInt(digits, 10);
+        if (epNum > 0) {
+            return `${vodName} S01E${String(epNum).padStart(2, "0")}`;
+        }
+    }
+    return vodName;
+}
+
+function buildScrapedEpisodeName(scrapeData, mapping, originalName) {
+    if (!mapping || mapping.episodeNumber === 0 || (mapping.confidence && mapping.confidence < 0.5)) {
+        return originalName;
+    }
+    if (mapping.episodeName) {
+        const epName = mapping.episodeNumber + "." + mapping.episodeName;
+        return epName;
+    }
+    if (scrapeData && Array.isArray(scrapeData.episodes)) {
+        const hit = scrapeData.episodes.find(
+            (ep) => ep.episodeNumber === mapping.episodeNumber && ep.seasonNumber === mapping.seasonNumber
+        );
+        if (hit?.name) {
+            return `${hit.episodeNumber}.${hit.name}`;
+        }
+    }
+    return originalName;
+}
+
+function buildScrapedDanmuFileName(scrapeData, scrapeType, mapping, fallbackVodName, fallbackEpisodeName) {
+    if (!scrapeData) {
+        return buildFileNameForDanmu(fallbackVodName, fallbackEpisodeName);
+    }
+    if (scrapeType === "movie") {
+        return scrapeData.title || fallbackVodName;
+    }
+    const title = scrapeData.title || fallbackVodName;
+    const seasonAirYear = scrapeData.seasonAirYear || "";
+    const seasonNumber = mapping?.seasonNumber || 1;
+    const episodeNumber = mapping?.episodeNumber || 1;
+    return `${title}.${seasonAirYear}.S${String(seasonNumber).padStart(2, "0")}E${String(episodeNumber).padStart(2, "0")}`;
+}
+
+function inferDriveTypeFromSourceName(name = "") {
+    const raw = String(name || "").toLowerCase();
+    if (raw.includes("百度")) return "baidu";
+    if (raw.includes("天翼")) return "tianyi";
+    if (raw.includes("夸克")) return "quark";
+    if (raw === "uc" || raw.includes("uc")) return "uc";
+    if (raw.includes("115")) return "115";
+    if (raw.includes("迅雷")) return "xunlei";
+    if (raw.includes("阿里")) return "ali";
+    if (raw.includes("123")) return "123pan";
+    return raw;
+}
+
+function isPanSourceName(name = "") {
+    const value = String(name || "");
+    if (!value) return false;
+    return ["百度", "天翼", "夸克", "UC", "115", "迅雷", "阿里", "123"].some((keyword) => value.includes(keyword));
+}
+
+function sortPlaySourcesByDriveOrder(playSources = []) {
+    if (!Array.isArray(playSources) || playSources.length <= 1) {
+        return playSources;
+    }
+    const orderMap = new Map(DRIVE_ORDER.map((name, index) => [name, index]));
+    return [...playSources].sort((a, b) => {
+        const aIsPan = isPanSourceName(a?.name || "");
+        const bIsPan = isPanSourceName(b?.name || "");
+        if (aIsPan !== bIsPan) {
+            return aIsPan ? 1 : -1;
+        }
+        if (!aIsPan && !bIsPan) {
+            return 0;
+        }
+        if (DRIVE_ORDER.length === 0) {
+            return 0;
+        }
+        const aType = inferDriveTypeFromSourceName(a?.name || "");
+        const bType = inferDriveTypeFromSourceName(b?.name || "");
+        const aOrder = orderMap.has(aType) ? orderMap.get(aType) : Number.MAX_SAFE_INTEGER;
+        const bOrder = orderMap.has(bType) ? orderMap.get(bType) : Number.MAX_SAFE_INTEGER;
+        if (aOrder !== bOrder) return aOrder - bOrder;
+        return 0;
+    });
+}
+
+function resolveCallerSource(params = {}, context = {}) {
+    return String(context?.from || params?.source || "").toLowerCase();
+}
+
+function getBaseURLHost(context = {}) {
+    const baseURL = String(context?.baseURL || "").trim();
+    if (!baseURL) return "";
+    try {
+        return new URL(baseURL).hostname.toLowerCase();
+    } catch {
+        return baseURL.toLowerCase();
+    }
+}
+
+function isPrivateHost(hostname = "") {
+    const host = String(hostname || "").toLowerCase();
+    if (!host) return false;
+    if (host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "0.0.0.0") return true;
+    if (/^(10\.|192\.168\.|169\.254\.)/.test(host)) return true;
+    if (/^172\.(1[6-9]|2\d|3[0-1])\./.test(host)) return true;
+    if (host.endsWith(".local") || host.endsWith(".lan") || host.endsWith(".internal") || host.endsWith(".intra")) return true;
+    if (host.includes(":")) return host.startsWith("fc") || host.startsWith("fd") || host.startsWith("fe80");
+    return false;
+}
+
+function canUseServerProxy(context = {}) {
+    if (EXTERNAL_SERVER_PROXY_ENABLED) return true;
+    return isPrivateHost(getBaseURLHost(context));
+}
+
+function filterSourceNamesForCaller(sourceNames = [], callerSource = "", context = {}) {
+    let filtered = Array.isArray(sourceNames) ? [...sourceNames] : [];
+    const allowServerProxy = canUseServerProxy(context);
+
+    if (callerSource === "web") {
+        filtered = filtered.filter((name) => name !== "本地代理");
+    } else if (callerSource === "emby") {
+        if (allowServerProxy) {
+            filtered = filtered.filter((name) => name === "服务端代理");
+        } else {
+            filtered = filtered.filter((name) => name !== "服务端代理");
+        }
+    } else if (callerSource === "uz") {
+        filtered = filtered.filter((name) => name !== "本地代理");
+    }
+
+    if (!allowServerProxy) {
+        filtered = filtered.filter((name) => name !== "服务端代理");
+    }
+
+    return filtered.length > 0 ? filtered : ["直连"];
+}
+
+function resolveRouteType(flag = "", callerSource = "", context = {}) {
+    const allowServerProxy = canUseServerProxy(context);
+    const validRouteTypes = new Set(["本地代理", "服务端代理", "直连"]);
+    let routeType = "直连";
+
+    if (callerSource === "web" || callerSource === "emby") {
+        routeType = allowServerProxy ? "服务端代理" : "直连";
+    }
+
+    if (flag) {
+        if (flag.includes("-")) {
+            const flagParts = flag.split("-");
+            routeType = flagParts[flagParts.length - 1];
+        } else {
+            routeType = flag;
+        }
+    }
+
+    if (!validRouteTypes.has(routeType)) {
+        routeType = "直连";
+    }
+
+    if (!allowServerProxy && routeType === "服务端代理") {
+        routeType = "直连";
+    }
+
+    if (callerSource === "uz" && routeType === "本地代理") {
+        routeType = "直连";
+    }
+
+    return routeType;
+}
+
+async function matchDanmu(fileName) {
+    if (!DANMU_API || !fileName) {
+        return [];
+    }
+
+    try {
+        logInfo("匹配弹幕", { fileName });
+        const response = await OmniBox.request(`${DANMU_API}/api/v2/match`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            },
+            body: JSON.stringify({ fileName }),
+        });
+
+        if (response.statusCode !== 200) {
+            logWarn("弹幕匹配失败", { statusCode: response.statusCode });
+            return [];
+        }
+
+        const data = JSON.parse(response.body || "{}");
+        if (!data.isMatched) {
+            return [];
+        }
+
+        const first = (data.matches || [])[0] || {};
+        if (!first.episodeId) {
+            return [];
+        }
+
+        const animeTitle = first.animeTitle || "";
+        const episodeTitle = first.episodeTitle || "";
+        let danmakuName = "弹幕";
+        if (animeTitle && episodeTitle) {
+            danmakuName = `${animeTitle} - ${episodeTitle}`;
+        } else if (animeTitle) {
+            danmakuName = animeTitle;
+        } else if (episodeTitle) {
+            danmakuName = episodeTitle;
+        }
+
+        return [{ name: danmakuName, url: `${DANMU_API}/api/v2/comment/${first.episodeId}?format=xml` }];
+    } catch (error) {
+        logWarn("弹幕匹配异常", { error: error.message || String(error) });
+        return [];
+    }
+}
+
+// ==================== 基础工具 ====================
+function getCurrentHost() {
+    return HOSTS[currentHostIndex] || HOSTS[0];
+}
+
+function rotateHost() {
+    currentHostIndex = (currentHostIndex + 1) % HOSTS.length;
+    return getCurrentHost();
+}
+
+function fixJsonWrappedHtml(html) {
+    if (html == null) {
+        return "";
+    }
+    if (typeof html === "object") {
+        try {
+            return JSON.stringify(html);
+        } catch {
+            return "";
+        }
+    }
+    const raw = String(html);
+    const trimmed = raw.trim();
+    if (!trimmed) {
+        return "";
+    }
+    if (trimmed.startsWith("<") || trimmed.startsWith("<!DOCTYPE")) {
+        return trimmed;
+    }
+    if (trimmed.startsWith("\"") && trimmed.endsWith("\"")) {
+        try {
+            const parsed = JSON.parse(trimmed);
+            if (typeof parsed === "string") {
+                return parsed.trim();
+            }
+        } catch {
+            return trimmed;
+        }
+    }
+    return trimmed;
+}
+
+function safeJsonParse(value, fallback = null) {
+    if (value == null || value === "") {
+        return fallback;
+    }
+    if (typeof value === "object") {
+        return value;
+    }
+    try {
+        return JSON.parse(String(value));
+    } catch {
+        return fallback;
+    }
+}
+
+function isAbsoluteUrl(url) {
+    return /^https?:\/\//i.test(String(url || ""));
+}
+
+function fixUrl(url, host = getCurrentHost()) {
+    const value = String(url || "").trim();
+    if (!value) {
+        return "";
+    }
+    if (isAbsoluteUrl(value)) {
+        return value;
+    }
+    if (value.startsWith("//")) {
+        return `https:${value}`;
+    }
+    if (value.startsWith("/")) {
+        return `${host}${value}`;
+    }
+    return `${host}/${value}`;
+}
+
+function normalizeImage(url, host = getCurrentHost()) {
+    const normalized = fixUrl(url, host);
+    return normalized || "";
+}
+
+function parsePage(value, fallback = 1) {
+    const n = parseInt(value, 10);
+    return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+function parseFilters(params = {}) {
+    const merged = {};
+    const candidates = [params.filters, params.extend, params.ext];
+    for (const item of candidates) {
+        if (!item) {
+            continue;
+        }
+        if (typeof item === "object") {
+            Object.assign(merged, item);
+            continue;
+        }
+        if (typeof item === "string") {
+            try {
+                const parsed = JSON.parse(item);
+                if (parsed && typeof parsed === "object") {
+                    Object.assign(merged, parsed);
+                }
+            } catch {
+                // ignore invalid filter json
+            }
+        }
+    }
+    const normalized = {};
+    for (const [key, value] of Object.entries(merged)) {
+        if (!["sort", "type", "area", "lang", "year"].includes(key)) {
+            continue;
+        }
+        normalized[key] = String(value || "").trim();
+    }
+    if (!FULL_SORT_OPTIONS.some((item) => item.value === normalized.sort)) {
+        normalized.sort = "time";
+    }
+    return normalized;
+}
+
+async function requestHtml(url, options = {}) {
+    const response = await axiosInstance.get(url, {
+        ...options,
+        headers: {
+            ...DEFAULT_HEADERS,
+            Referer: `${getCurrentHost()}/`,
+            Origin: getCurrentHost(),
+            ...(options.headers || {}),
+        },
+    });
+    return fixJsonWrappedHtml(response.data || "");
+}
+
+/**
+ * 按 host 列表自动重试。
+ * - 绝对 URL：直接请求一次
+ * - 相对 URL：按当前 host 开始轮询，成功即返回
+ */
+async function requestHtmlWithFailover(pathOrUrl, options = {}) {
+    if (isAbsoluteUrl(pathOrUrl)) {
+        return requestHtml(pathOrUrl, options);
+    }
+
+    let lastError = null;
+    const startIndex = currentHostIndex;
+
+    for (let i = 0; i < HOSTS.length; i++) {
+        const host = HOSTS[currentHostIndex];
+        const url = fixUrl(pathOrUrl, host);
+        try {
+            logInfo("请求页面", { host, path: pathOrUrl });
+            const html = await requestHtml(url, {
+                ...options,
+                headers: {
+                    ...(options.headers || {}),
+                    Referer: `${host}/`,
+                    Origin: host,
+                },
+            });
+
+            if (html) {
+                const trimmed = String(html).trim();
+                const isHtml = trimmed.includes("<html") || trimmed.startsWith("<!DOCTYPE");
+                const isJson = trimmed.startsWith("{") || trimmed.startsWith("[");
+                if (isHtml || isJson) {
+                    if (i > 0) {
+                        logInfo("站点切换成功", { from: HOSTS[startIndex], to: host });
+                    }
+                    return { html, host };
+                }
+            }
+
+            lastError = new Error("empty or invalid html");
+            logWarn("页面内容异常，切换下一个 host", { host });
+        } catch (error) {
+            lastError = error;
+            logWarn("请求失败，切换下一个 host", { host, error: error.message || String(error) });
+        }
+
+        rotateHost();
+    }
+
+    throw lastError || new Error("all hosts failed");
+}
+
+// ==================== 列表解析 ====================
+function pickFirstText($root, selectors = []) {
+    for (const selector of selectors) {
+        const value = $root.find(selector).first().text().trim();
+        if (value) {
+            return value;
+        }
+    }
+    return "";
+}
+
+function pickFirstAttr($root, selectors = [], attrName = "href") {
+    for (const selector of selectors) {
+        const value = $root.find(selector).first().attr(attrName);
+        if (value) {
+            return String(value).trim();
+        }
+    }
+    return "";
+}
+
+function parsePosterItem($, element, host) {
+    const $item = $(element);
+
+    const title =
+        pickFirstAttr($item, ["h3 a", ".title a", ".li-img a", "a"], "title") ||
+        pickFirstText($item, ["h3 a", ".title a", "a"]);
+
+    if (!title) {
+        return null;
+    }
+
+    const desc = pickFirstText($item, [".tag", ".label", ".remark"]);
+    const img = pickFirstAttr($item, [".li-img img", "img"], "src");
+    const href = pickFirstAttr($item, ["h3 a", ".title a", ".li-img a", "a"], "href");
+
+    if (!href) {
+        return null;
+    }
+
+    return {
+        vod_id: fixUrl(href, host),
+        vod_name: title,
+        vod_pic: normalizeImage(img, host),
+        vod_remarks: desc || "",
+    };
+}
+
+function parseVideoList(html, host) {
+    const $ = cheerio.load(html || "");
+    const nodes = $(".content-list li");
+    const list = [];
+    nodes.each((_, element) => {
+        const item = parsePosterItem($, element, host);
+        if (item) {
+            list.push(item);
+        }
+    });
+    return list;
+}
+
+function buildCategoryPath(categoryId, page, filters = {}) {
+    const area = encodeURIComponent(String(filters.area || "").trim());
+    const sort = String(filters.sort || "time").trim() || "time";
+    const type = encodeURIComponent(String(filters.type || "").trim());
+    const lang = encodeURIComponent(String(filters.lang || "").trim());
+    const year = encodeURIComponent(String(filters.year || "").trim());
+    return `/ms/${categoryId}-${area}-${sort}-${type}-${lang}-------${year}.html?page=${page}`;
+}
+
+function parsePanTypeKey(url) {
+    const source = String(url || "").toLowerCase();
+    if (!source) {
+        return "";
+    }
+    const mapping = {
+        "pan.baidu.com": "baidu",
+        "pan.baiduimg.com": "baidu",
+        "pan.quark.cn": "quark",
+        "drive.uc.cn": "uc",
+        "cloud.189.cn": "tianyi",
+        "yun.139.com": "mobile",
+        "alipan.com": "ali",
+        "pan.aliyun.com": "ali",
+        "115.com": "115",
+        "115cdn.com": "115",
+    };
+
+    for (const [key, type] of Object.entries(mapping)) {
+        if (source.includes(key)) {
+            return type;
+        }
+    }
+    return "";
+}
+
+function parsePanType(url) {
+    const typeKey = parsePanTypeKey(url);
+    const typeMap = {
+        baidu: "百度",
+        quark: "夸克",
+        uc: "UC",
+        tianyi: "天翼",
+        mobile: "移动",
+        ali: "阿里",
+        115: "115",
+    };
+    return typeMap[typeKey] || "其他";
+}
+
+function isPanUrl(url) {
+    const source = String(url || "");
+    if (!source) {
+        return false;
+    }
+    return [
+        "pan.baidu.com",
+        "pan.baiduimg.com",
+        "pan.quark.cn",
+        "drive.uc.cn",
+        "cloud.189.cn",
+        "yun.139.com",
+        "alipan.com",
+        "pan.aliyun.com",
+        "115.com",
+        "115cdn.com",
+    ].some((key) => source.includes(key));
+}
+
+function isDirectVideoUrl(url) {
+    if (!url) {
+        return false;
+    }
+    return /\.(m3u8|mp4|flv|avi|mkv|ts|mov|webm)(\?|$)/i.test(String(url));
+}
+
+function normalizeShareUrl(url) {
+    if (!url) {
+        return "";
+    }
+    let value = String(url).trim();
+    if (value.startsWith("push://")) {
+        value = value.slice("push://".length);
+    }
+    if (value.startsWith("push:")) {
+        value = value.slice("push:".length);
+    }
+    const dnIndex = value.toLowerCase().indexOf("&dn=");
+    if (dnIndex !== -1) {
+        value = value.slice(0, dnIndex);
+    }
+    return value.trim();
+}
+
+function isVideoFile(file) {
+    if (!file || !file.file_name) {
+        return false;
+    }
+    const fileName = String(file.file_name).toLowerCase();
+    const videoExtensions = [".mp4", ".mkv", ".avi", ".flv", ".mov", ".wmv", ".m3u8", ".ts", ".webm", ".m4v"];
+    for (const ext of videoExtensions) {
+        if (fileName.endsWith(ext)) {
+            return true;
+        }
+    }
+    if (file.format_type) {
+        const formatType = String(file.format_type).toLowerCase();
+        if (formatType.includes("video") || formatType.includes("mpeg") || formatType.includes("h264")) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function getFileId(file) {
+    return file?.fid || file?.file_id || "";
+}
+
+function getFileName(file) {
+    return file?.file_name || file?.name || "";
+}
+
+async function getAllVideoFiles(shareURL, files) {
+    const videoFiles = [];
+    for (const file of files || []) {
+        if (file.file && isVideoFile(file)) {
+            videoFiles.push(file);
+        } else if (file.dir) {
+            try {
+                const subFileId = getFileId(file);
+                if (!subFileId) {
+                    continue;
+                }
+                const subFileList = await OmniBox.getDriveFileList(shareURL, subFileId);
+                if (subFileList && Array.isArray(subFileList.files)) {
+                    const subVideos = await getAllVideoFiles(shareURL, subFileList.files);
+                    videoFiles.push(...subVideos);
+                }
+            } catch (error) {
+                logWarn("获取网盘子目录文件失败", { shareURL, fileId: getFileId(file), error: error.message || String(error) });
+            }
+        }
+    }
+    return videoFiles;
+}
+
+function buildCacheKey(prefix, value) {
+    return `${prefix}:${String(value || "")}`;
+}
+
+async function getCachedJSON(key) {
+    try {
+        return await OmniBox.getCache(key);
+    } catch (error) {
+        logWarn("读取缓存失败", { key, error: error.message || String(error) });
+        return null;
+    }
+}
+
+async function setCachedJSON(key, value, exSeconds = QIWEI_CACHE_EX_SECONDS) {
+    try {
+        await OmniBox.setCache(key, value, exSeconds);
+    } catch (error) {
+        logWarn("写入缓存失败", { key, error: error.message || String(error) });
+    }
+}
+
+async function getDriveInfoCached(shareURL) {
+    const cacheKey = buildCacheKey("qiwei:driveInfo", shareURL);
+    let driveInfo = await getCachedJSON(cacheKey);
+    if (!driveInfo) {
+        driveInfo = await OmniBox.getDriveInfoByShareURL(shareURL);
+        if (driveInfo) {
+            await setCachedJSON(cacheKey, driveInfo);
+        }
+    } else {
+        logInfo("命中网盘信息缓存", { shareURL });
+    }
+    return driveInfo;
+}
+
+async function getRootFileListCached(shareURL) {
+    const cacheKey = buildCacheKey("qiwei:rootFiles", shareURL);
+    let fileList = await getCachedJSON(cacheKey);
+    if (!fileList) {
+        fileList = await OmniBox.getDriveFileList(shareURL, "0");
+        if (fileList && Array.isArray(fileList.files)) {
+            await setCachedJSON(cacheKey, fileList);
+        }
+    } else {
+        logInfo("命中网盘根目录缓存", { shareURL, count: Array.isArray(fileList?.files) ? fileList.files.length : 0 });
+    }
+    return fileList;
+}
+
+async function getAllVideoFilesCached(shareURL, rootFiles = []) {
+    const cacheKey = buildCacheKey("qiwei:videoFiles", shareURL);
+    let videos = await getCachedJSON(cacheKey);
+    if (!Array.isArray(videos) || videos.length === 0) {
+        videos = await getAllVideoFiles(shareURL, rootFiles);
+        if (Array.isArray(videos) && videos.length > 0) {
+            await setCachedJSON(cacheKey, videos);
+        }
+    } else {
+        logInfo("命中网盘视频文件缓存", { shareURL, count: videos.length });
+    }
+    return Array.isArray(videos) ? videos : [];
+}
+
+async function getMergedMetadataCached(videoId, vodName, scrapeCandidates = []) {
+    const metadataCacheKey = buildCacheKey("qiwei:metadata", videoId);
+    const metadataRefreshLockKey = buildCacheKey("qiwei:metadataRefreshLock", videoId);
+
+    let scrapeData = null;
+    let videoMappings = [];
+    let scrapeType = "";
+    const cachedMetadata = await getCachedJSON(metadataCacheKey);
+
+    if (cachedMetadata) {
+        scrapeData = cachedMetadata.scrapeData || null;
+        videoMappings = Array.isArray(cachedMetadata.videoMappings) ? cachedMetadata.videoMappings : [];
+        scrapeType = cachedMetadata.scrapeType || "";
+        logInfo("命中刮削元数据缓存", { videoId, mappingCount: videoMappings.length, scrapeType });
+    }
+
+    const refreshMetadataInBackground = async () => {
+        const refreshLock = await getCachedJSON(metadataRefreshLockKey);
+        if (refreshLock || scrapeCandidates.length === 0) {
+            return;
+        }
+        await setCachedJSON(metadataRefreshLockKey, { refreshing: true }, QIWEI_CACHE_EX_SECONDS);
+        try {
+            logInfo("后台刷新刮削元数据", { videoId, candidateCount: scrapeCandidates.length });
+            await OmniBox.processScraping(String(videoId || ""), vodName || "", vodName || "", scrapeCandidates);
+            const metadata = await OmniBox.getScrapeMetadata(String(videoId || ""));
+            await setCachedJSON(metadataCacheKey, {
+                scrapeData: metadata?.scrapeData || null,
+                videoMappings: metadata?.videoMappings || [],
+                scrapeType: metadata?.scrapeType || "",
+            }, QIWEI_CACHE_EX_SECONDS);
+        } catch (error) {
+            logWarn("后台刷新刮削元数据失败", { videoId, error: error.message || String(error) });
+        }
+    };
+
+    if (!cachedMetadata && scrapeCandidates.length > 0) {
+        try {
+            logInfo("未命中刮削元数据缓存，开始同步刮削", { videoId, candidateCount: scrapeCandidates.length });
+            const scrapingResult = await OmniBox.processScraping(String(videoId || ""), vodName || "", vodName || "", scrapeCandidates);
+            logInfo("刮削处理完成", { videoId, length: JSON.stringify(scrapingResult || {}).length });
+            const metadata = await OmniBox.getScrapeMetadata(String(videoId || ""));
+            scrapeData = metadata?.scrapeData || null;
+            videoMappings = metadata?.videoMappings || [];
+            scrapeType = metadata?.scrapeType || "";
+            await setCachedJSON(metadataCacheKey, {
+                scrapeData,
+                videoMappings,
+                scrapeType,
+            }, QIWEI_CACHE_EX_SECONDS);
+            logInfo("刮削元数据读取完成", { videoId, hasScrapeData: !!scrapeData, mappingCount: videoMappings.length, scrapeType });
+        } catch (error) {
+            logWarn("刮削处理失败", { videoId, error: error.message || String(error) });
+        }
+    } else if (cachedMetadata) {
+        refreshMetadataInBackground().catch((error) => {
+            logWarn("异步刷新刮削元数据失败", { videoId, error: error.message || String(error) });
+        });
+    }
+
+    return {
+        scrapeData,
+        videoMappings,
+        scrapeType,
+        cachedMetadata,
+    };
+}
+
+const panRouteCache = new Map();
+
+async function loadPanFiles(shareURL) {
+    if (!shareURL) {
+        return null;
+    }
+    try {
+        await getDriveInfoCached(shareURL);
+        const fileList = await getRootFileListCached(shareURL);
+        const files = Array.isArray(fileList?.files) ? fileList.files : [];
+        const videos = await getAllVideoFilesCached(shareURL, files);
+        return { videos };
+    } catch (error) {
+        logWarn("读取网盘文件失败", { shareURL, error: error.message || String(error) });
+        return null;
+    }
+}
+
+function extractRouteTypeFromFlag(flag) {
+    const value = String(flag || "").trim();
+    if (!value) {
+        return "";
+    }
+    if (value.includes("-")) {
+        const last = value.split("-").pop();
+        return String(last || "").trim();
+    }
+    return value;
+}
+
+function hasValidPlayUrls(playInfo) {
+    return Array.isArray(playInfo?.url) && playInfo.url.some((item) => item?.url);
+}
+
+async function detectValidPanRoutes(shareURL, videos = [], callerSource = "", context = {}, maxNeeded = MAX_PAN_VALID_ROUTES) {
+    const routeLimit = Math.max(1, Math.min(MAX_PAN_VALID_ROUTES, parseInt(maxNeeded, 10) || MAX_PAN_VALID_ROUTES));
+    const filteredCandidates = filterSourceNamesForCaller(PAN_ROUTE_NAMES.length > 0 ? PAN_ROUTE_NAMES : ["直连"], callerSource, context);
+    const cacheKey = `${shareURL}::${callerSource || "default"}::${routeLimit}::${filteredCandidates.join(",")}`;
+    if (panRouteCache.has(cacheKey)) {
+        return panRouteCache.get(cacheKey);
+    }
+
+    const sample = (videos || []).find((x) => getFileId(x));
+    if (!sample) {
+        const fallback = filteredCandidates.length > 0 ? filteredCandidates : ["直连"];
+        const result = fallback.slice(0, routeLimit);
+        panRouteCache.set(cacheKey, result);
+        return result;
+    }
+
+    const sampleFileId = getFileId(sample);
+    const validRoutes = [];
+
+    for (const routeName of filteredCandidates.slice(0, routeLimit)) {
+        try {
+            const playInfo = await OmniBox.getDriveVideoPlayInfo(shareURL, sampleFileId, routeName);
+            if (hasValidPlayUrls(playInfo)) {
+                validRoutes.push(routeName);
+            }
+        } catch (error) {
+            logWarn("网盘线路有效性检测失败", { shareURL, routeName, error: error.message || String(error) });
+        }
+    }
+
+    const result = validRoutes.slice(0, routeLimit);
+    panRouteCache.set(cacheKey, result);
+    logInfo("网盘线路有效性检测完成", {
+        shareURL,
+        callerSource,
+        candidates: filteredCandidates,
+        validRoutes: result,
+        routeLimit,
+    });
+    return result;
+}
+
+function isBlockedLineName(name) {
+    if (!name) {
+        return false;
+    }
+    return String(name).includes("磁力");
+}
+
+// ==================== 标准接口 ====================
+async function home(params) {
+    try {
+        const { html, host } = await requestHtmlWithFailover("/");
+        const list = parseVideoList(html, host);
+        logInfo("首页加载完成", { host, count: list.length });
+        return {
+            class: CLASSES,
+            filters: FILTERS,
+            list,
+        };
+    } catch (error) {
+        logError("首页加载失败", error);
+        return {
+            class: CLASSES,
+            filters: FILTERS,
+            list: [],
+        };
+    }
+}
+
+async function category(params) {
+    const categoryId = String(params.categoryId || "1");
+    const page = parsePage(params.page, 1);
+    const filters = parseFilters(params);
+
+    try {
+        const path = buildCategoryPath(categoryId, page, filters);
+        const { html, host } = await requestHtmlWithFailover(path);
+        const list = parseVideoList(html, host);
+        logInfo("分类加载完成", { categoryId, page, host, count: list.length, filters });
+        return {
+            page,
+            pagecount: list.length >= 20 ? page + 1 : page,
+            total: list.length,
+            list,
+        };
+    } catch (error) {
+        logError("分类加载失败", error);
+        return {
+            page,
+            pagecount: page,
+            total: 0,
+            list: [],
+        };
+    }
+}
+
+async function search(params) {
+    const keyword = String(params.keyword || params.wd || "").trim();
+    const page = parsePage(params.page, 1);
+
+    if (!keyword) {
+        logWarn("搜索关键词为空");
+        return {
+            page,
+            pagecount: page,
+            total: 0,
+            list: [],
+        };
+    }
+
+    try {
+        const path = `/index.php/ajax/suggest?mid=1&limit=20&wd=${encodeURIComponent(keyword)}`;
+        const { html, host } = await requestHtmlWithFailover(path, {
+            headers: {
+                Accept: "application/json, text/plain, */*",
+                "X-Requested-With": "XMLHttpRequest",
+                Referer: `${getCurrentHost()}/`,
+            },
+        });
+        const data = safeJsonParse(html, {});
+        const items = Array.isArray(data?.list) ? data.list : [];
+        const list = items.map((item) => {
+            const vodId = String(item?.id || "").trim();
+            const pic = normalizeImage(item?.pic || "", host);
+            return {
+                vod_id: vodId,
+                vod_name: String(item?.name || "").trim(),
+                vod_pic: pic,
+                vod_remarks: "",
+            };
+        }).filter((item) => item.vod_id && item.vod_name);
+        const pageCount = Number(data?.pagecount) || (list.length >= 20 ? page + 1 : page);
+        const total = Number(data?.total) || list.length;
+        logInfo("搜索完成", { keyword, page, host, count: list.length, api: path, total, pageCount });
+        return {
+            page,
+            pagecount: pageCount,
+            total,
+            list,
+        };
+    } catch (error) {
+        logError("搜索失败", error);
+        return {
+            page,
+            pagecount: page,
+            total: 0,
+            list: [],
+        };
+    }
+}
+
+function parseDetailInfo(html, host) {
+    const $ = cheerio.load(html || "");
+
+    const title =
+        $(".main-ui-meta h1").first().clone().children("span").remove().end().text().trim() ||
+        $(".detail-title").first().text().trim() ||
+        "";
+
+    let typeName = "";
+    const typeBox = html.match(/<div><span>类型：<\/span>[\s\S]*?<\/div>/);
+    if (typeBox && typeBox[0]) {
+        const names = [...typeBox[0].matchAll(/<a[^>]*>([^<]+)<\/a>/g)].map((m) => m[1]);
+        typeName = [...new Set(names)].join("/");
+    }
+
+    let area = "";
+    const areaBox = html.match(/<div><span>地区：<\/span>[\s\S]*?<\/div>/);
+    if (areaBox && areaBox[0]) {
+        const names = [...areaBox[0].matchAll(/<a[^>]*>([^<]+)<\/a>/g)].map((m) => m[1]);
+        area = [...new Set(names)].join("/");
+    }
+
+    const showContent = $(".movie-introduce .zkjj_a").first().text().replace(/\s*\[展开全部\]/g, "").trim();
+    const hideContent = $(".movie-introduce .sqjj_a").first().text().replace(/\s*\[收起部分\]/g, "").trim();
+
+    const directorMatch = html.match(/<div>[\s\S]*?导演：[\s\S]*?<\/div>/);
+    const director = directorMatch?.[0]?.match(/<a[^>]*>([^<]+)<\/a>/)?.[1] || "";
+
+    return {
+        vod_name: title,
+        type_name: typeName || $(".main-ui-meta div:nth-child(9) a").first().text().trim(),
+        vod_pic: normalizeImage($(".img img").first().attr("src"), host),
+        vod_content: hideContent || showContent || $(".detail-content").first().text().trim() || "",
+        vod_remarks: $(".otherbox").first().text().trim() || "",
+        vod_year: ($(".main-ui-meta h1 span.year").first().text() || "").replace(/[()]/g, "").trim(),
+        vod_area: area || $(".main-ui-meta div:nth-child(11) a").first().text().trim(),
+        vod_actor: ($(".main-ui-meta div.text-overflow").first().text() || "").replace(/^主演：/, "").trim(),
+        vod_director: director,
+    };
+}
+
+function normalizeCollectLineName(name = "") {
+    return String(name || "")
+        .replace(/[\u00a0\u2000-\u200f\u2028-\u202f\u205f\u3000]/g, " ")
+        .replace(/\s+/g, " ")
+        .replace(/\s+(\d+)$/u, "")
+        .trim();
+}
+
+function formatPanSourceName(type = "", index = 0) {
+    const baseName = String(type || "").trim() || "网盘";
+    const suffix = index > 0 ? ` ${index + 1}` : "";
+    return `${baseName}${suffix}`;
+}
+
+async function parsePlaySources(html, videoId, host, callerSource = "", context = {}) {
+    const $ = cheerio.load(html || "");
+    const playSources = [];
+
+    const tabItems = $(".py-tabs li").toArray();
+    const episodeContainers = $(".bd ul.player").toArray();
+    const normalizedLineNames = tabItems.map((tab, index) => {
+        const rawName = $(tab).text().trim();
+        const normalizedName = normalizeCollectLineName(rawName);
+        return normalizedName || `线路${index + 1}`;
+    });
+    const lineNameCounter = normalizedLineNames.reduce((acc, name) => {
+        acc.set(name, (acc.get(name) || 0) + 1);
+        return acc;
+    }, new Map());
+    const lineNameSeen = new Map();
+
+    const lineCount = Math.min(tabItems.length, episodeContainers.length);
+    for (let i = 0; i < lineCount; i++) {
+        const baseLineName = normalizedLineNames[i] || `线路${i + 1}`;
+        const duplicatedCount = lineNameCounter.get(baseLineName) || 0;
+        const currentIndex = (lineNameSeen.get(baseLineName) || 0) + 1;
+        lineNameSeen.set(baseLineName, currentIndex);
+        const lineName = duplicatedCount > 1 ? `${baseLineName} ${currentIndex}` : baseLineName;
+
+        if (isBlockedLineName(lineName)) {
+            continue;
+        }
+
+        const episodes = [];
+        $(episodeContainers[i])
+            .find("a")
+            .each((idx, node) => {
+                const name = $(node).text().trim() || `第${idx + 1}集`;
+                const fid = `${videoId}#${i}#${idx}`;
+                episodes.push({
+                    name,
+                    playId: `${videoId}|${i}|${idx}|||${encodeMeta({ sid: String(videoId || ""), fid, e: name })}`,
+                    _fid: fid,
+                    _rawName: name,
+                });
+            });
+
+        if (episodes.length === 0) {
+            const fid = `${videoId}#${i}#0`;
+            episodes.push({
+                name: "正片",
+                playId: `${videoId}|${i}|0|||${encodeMeta({ sid: String(videoId || ""), fid, e: "正片" })}`,
+                _fid: fid,
+                _rawName: "正片",
+            });
+        }
+
+        playSources.push({
+            name: lineName,
+            episodes,
+        });
+    }
+
+    // 网盘链接
+    const panRegex = /https?:\/\/(pan\.baidu\.com|pan\.quark\.cn|drive\.uc\.cn|cloud\.189\.cn|yun\.139\.com|alipan\.com|pan\.aliyun\.com|115\.com|115cdn\.com)\/[^"'\s>]+/g;
+    const htmlPanLinks = html.match(panRegex) || [];
+    const anchorPanLinks = $("a")
+        .toArray()
+        .flatMap((a) => {
+            const links = [];
+            const href = $(a).attr("href") || "";
+            const clipboard = $(a).attr("data-clipboard-text") || "";
+            if (isPanUrl(href)) {
+                links.push(href);
+            }
+            if (isPanUrl(clipboard)) {
+                links.push(clipboard);
+            }
+            return links;
+        });
+
+    const allPanLinks = [...new Set([...htmlPanLinks, ...anchorPanLinks])];
+    const grouped = {};
+
+    for (const link of allPanLinks) {
+        const type = parsePanType(link);
+        if (type === "其他") {
+            continue;
+        }
+        if (!grouped[type]) {
+            grouped[type] = [];
+        }
+        grouped[type].push(link);
+    }
+
+    for (const [type, links] of Object.entries(grouped)) {
+        const maxRoutesPerLink = Math.max(1, MAX_PAN_VALID_ROUTES);
+        const maxShareCount = maxRoutesPerLink;
+        let builtShareCount = 0;
+
+        for (let index = 0; index < links.length; index++) {
+            if (builtShareCount >= maxShareCount) {
+                logInfo("已达到同类网盘分享阈值，跳过后续分享", { type, maxShareCount, skipped: links.length - index });
+                break;
+            }
+
+            const link = links[index];
+            const shareURL = normalizeShareUrl(link);
+            if (!isPanUrl(shareURL)) {
+                continue;
+            }
+
+            const sourceName = formatPanSourceName(type, builtShareCount);
+            const driveTypeKey = parsePanTypeKey(shareURL);
+            const multiRouteEnabled = driveTypeKey && DRIVE_TYPE_CONFIG.includes(driveTypeKey);
+
+            const panInfo = await loadPanFiles(shareURL);
+            const files = panInfo?.videos || [];
+            if (!files.length) {
+                logInfo("网盘分享未解析到有效视频文件，跳过当前分享", { type, shareURL });
+                continue;
+            }
+
+            const panEpisodes = [];
+
+            for (const file of files) {
+                const fileId = getFileId(file);
+                if (!fileId) {
+                    continue;
+                }
+                const fileName = getFileName(file) || sourceName;
+                const fid = `${videoId}#pan#${builtShareCount}#${fileId}`;
+                const combinedId = `${shareURL}|${fileId}|||${encodeMeta({ sid: String(videoId || ""), fid, e: fileName })}`;
+                panEpisodes.push({
+                    name: fileName,
+                    playId: combinedId,
+                    _fid: fid,
+                    _rawName: fileName,
+                });
+            }
+
+            if (panEpisodes.length === 0) {
+                logInfo("网盘分享视频文件缺少可用 fileId，跳过当前分享", { type, shareURL, files: files.length });
+                continue;
+            }
+
+            if (!multiRouteEnabled) {
+                playSources.push({
+                    name: sourceName,
+                    episodes: panEpisodes.map((ep) => ({
+                        name: ep.name,
+                        playId: ep.playId,
+                        _fid: ep._fid,
+                        _rawName: ep._rawName,
+                    })),
+                });
+                builtShareCount += 1;
+                continue;
+            }
+
+            const validRoutes = await detectValidPanRoutes(shareURL, files, callerSource, context, maxRoutesPerLink);
+            if (validRoutes.length === 0) {
+                logInfo("网盘分享未检测到有效播放路线，跳过当前分享", { type, shareURL });
+                continue;
+            }
+
+            for (const routeName of validRoutes.slice(0, maxRoutesPerLink)) {
+                playSources.push({
+                    name: `${sourceName} ${routeName}`,
+                    episodes: panEpisodes.map((ep) => ({
+                        name: ep.name,
+                        playId: ep.playId,
+                        _fid: ep._fid,
+                        _rawName: ep._rawName,
+                    })),
+                });
+            }
+            builtShareCount += 1;
+        }
+    }
+
+    if (playSources.length === 0) {
+        playSources.push({
+            name: "默认线路",
+            episodes: [
+                {
+                    name: "正片",
+                    playId: `${videoId}|0|0|||${encodeMeta({ sid: String(videoId || ""), fid: `${videoId}#0#0`, e: "正片" })}`,
+                    _fid: `${videoId}#0#0`,
+                    _rawName: "正片",
+                },
+            ],
+        });
+    }
+
+    logInfo("解析播放线路完成", { host, lines: playSources.length });
+    return playSources;
+}
+
+function extractVideoId(urlOrId) {
+    const value = String(urlOrId || "");
+    const match = value.match(/\/mv\/(\d+)\.html/);
+    return match ? match[1] : value;
+}
+
+async function detail(params, context = {}) {
+    const inputId = params.videoId || "";
+    const videoId = extractVideoId(inputId);
+
+    if (!videoId) {
+        logWarn("详情请求缺少有效 videoId", { inputId });
+        return { list: [] };
+    }
+
+    const path = `/mv/${videoId}.html`;
+
+    try {
+        const { html, host } = await requestHtmlWithFailover(path);
+        const info = parseDetailInfo(html, host);
+        const callerSource = resolveCallerSource(params, context);
+        let playSources = await parsePlaySources(html, videoId, host, callerSource, context);
+
+        let scrapeData = null;
+        let videoMappings = [];
+        let scrapeType = "";
+        const scrapeCandidates = [];
+        const seenFids = new Set();
+
+        for (const source of playSources) {
+            for (const ep of source.episodes || []) {
+                if (!ep._fid) continue;
+                if (seenFids.has(ep._fid)) continue;
+                seenFids.add(ep._fid);
+                scrapeCandidates.push({
+                    fid: ep._fid,
+                    file_id: ep._fid,
+                    file_name: ep._rawName || ep.name || "正片",
+                    name: ep._rawName || ep.name || "正片",
+                    format_type: "video",
+                });
+            }
+        }
+
+        if (scrapeCandidates.length > 0) {
+            ({ scrapeData, videoMappings, scrapeType } = await getMergedMetadataCached(
+                String(videoId || ""),
+                info.vod_name || "",
+                scrapeCandidates
+            ));
+        }
+
+        for (const source of playSources) {
+            for (const ep of source.episodes || []) {
+                const mapping = videoMappings.find((m) => m?.fileId === ep._fid);
+                if (!mapping) continue;
+                const newName = buildScrapedEpisodeName(scrapeData, mapping, ep.name);
+                if (newName && newName !== ep.name) {
+                    logInfo("应用刮削后源文件名", { old: ep.name, new: newName });
+                    ep.name = newName;
+                }
+                ep._seasonNumber = mapping.seasonNumber;
+                ep._episodeNumber = mapping.episodeNumber;
+            }
+
+            const hasEpisodeNumber = (source.episodes || []).some((ep) => ep._episodeNumber !== undefined && ep._episodeNumber !== null);
+            if (hasEpisodeNumber) {
+                source.episodes.sort((a, b) => {
+                    const sa = a._seasonNumber || 0;
+                    const sb = b._seasonNumber || 0;
+                    if (sa !== sb) return sa - sb;
+                    const ea = a._episodeNumber || 0;
+                    const eb = b._episodeNumber || 0;
+                    return ea - eb;
+                });
+            }
+        }
+
+        const normalizedPlaySources = sortPlaySourcesByDriveOrder(playSources).map((source) => ({
+            name: source.name,
+            episodes: (source.episodes || []).map((ep) => ({
+                name: ep.name,
+                playId: ep.playId,
+            })),
+        }));
+
+        const vod = {
+            vod_id: videoId,
+            ...info,
+            vod_play_sources: normalizedPlaySources,
+        };
+
+        if (scrapeData) {
+            vod.vod_name = scrapeData.title || vod.vod_name;
+            if (scrapeData.posterPath) {
+                vod.vod_pic = `https://image.tmdb.org/t/p/w500${scrapeData.posterPath}`;
+            }
+            if (scrapeData.overview) {
+                vod.vod_content = scrapeData.overview;
+            }
+            if (scrapeData.releaseDate) {
+                vod.vod_year = String(scrapeData.releaseDate).substring(0, 4) || vod.vod_year || "";
+            }
+            const actors = (scrapeData.credits?.cast || []).slice(0, 5).map((c) => c?.name).filter(Boolean).join(",");
+            if (actors) {
+                vod.vod_actor = actors;
+            }
+            const directors = (scrapeData.credits?.crew || [])
+                .filter((c) => c?.job === "Director" || c?.department === "Directing")
+                .slice(0, 3)
+                .map((c) => c?.name)
+                .filter(Boolean)
+                .join(",");
+            if (directors) {
+                vod.vod_director = directors;
+            }
+        }
+
+        return {
+            list: [vod],
+        };
+    } catch (error) {
+        logError("详情解析失败", error);
+        return { list: [] };
+    }
+}
+
+async function play(params, context = {}) {
+    let playId = String(params.playId || "").trim();
+    const flag = String(params.flag || "").trim();
+    const callerSource = resolveCallerSource(params, context);
+    let playMeta = {};
+
+    logInfo("开始播放解析", { playId, flag });
+
+    if (!playId) {
+        return {
+            urls: [{ name: "解析失败", url: "" }],
+            parse: 1,
+            header: {
+                ...DEFAULT_HEADERS,
+                Referer: `${getCurrentHost()}/`,
+            },
+        };
+    }
+
+    if (playId.includes("|||")) {
+        const [mainPlayId, metaB64] = playId.split("|||");
+        playId = mainPlayId;
+        playMeta = decodeMeta(metaB64 || "");
+        logInfo("解析透传信息", { sid: playMeta.sid || "", fid: playMeta.fid || "", e: playMeta.e || "" });
+    }
+
+    if (playId && playId.includes("|")) {
+        const [rawShareURL, fileId] = playId.split("|");
+        const shareURL = normalizeShareUrl(rawShareURL);
+        if (shareURL && fileId && isPanUrl(shareURL)) {
+            try {
+                const routeType = resolveRouteType(flag, callerSource, context);
+                logInfo("网盘播放路线解析", { shareURL, fileId, flag, callerSource, routeType });
+                const playInfoPromise = OmniBox.getDriveVideoPlayInfo(shareURL, fileId, routeType);
+                const metadataPromise = (async () => {
+                    const result = {
+                        danmakuList: [],
+                        scrapeTitle: "",
+                        scrapePic: "",
+                        episodeNumber: null,
+                        episodeName: String(params.episodeName || playMeta.e || "").trim(),
+                    };
+
+                    const videoIdForScrape = String(params.vodId || playMeta.sid || "").trim();
+                    if (!videoIdForScrape) {
+                        return result;
+                    }
+
+                    try {
+                        const metadata = await OmniBox.getScrapeMetadata(videoIdForScrape);
+                        if (!metadata || !metadata.scrapeData || !Array.isArray(metadata.videoMappings)) {
+                            return result;
+                        }
+
+                        const formattedFileId = `${shareURL}|${fileId}|${videoIdForScrape}`;
+                        const mapping = metadata.videoMappings.find((m) => m?.fileId === formattedFileId);
+                        if (!mapping) {
+                            return result;
+                        }
+
+                        const scrapeData = metadata.scrapeData;
+                        result.scrapeTitle = scrapeData.title || "";
+                        if (scrapeData.posterPath) {
+                            result.scrapePic = `https://image.tmdb.org/t/p/w500${scrapeData.posterPath}`;
+                        }
+                        if (mapping.episodeNumber) {
+                            result.episodeNumber = mapping.episodeNumber;
+                        }
+                        if (mapping.episodeName && !result.episodeName) {
+                            result.episodeName = mapping.episodeName;
+                        }
+
+                        const fileName = buildScrapedDanmuFileName(
+                            scrapeData,
+                            metadata.scrapeType || "",
+                            mapping,
+                            String(params.vodName || playMeta.v || scrapeData.title || "").trim(),
+                            result.episodeName
+                        );
+                        if (fileName) {
+                            const matchedDanmaku = typeof OmniBox.getDanmakuByFileName === "function"
+                                ? await OmniBox.getDanmakuByFileName(fileName)
+                                : await matchDanmu(fileName);
+                            if (Array.isArray(matchedDanmaku) && matchedDanmaku.length > 0) {
+                                result.danmakuList = matchedDanmaku;
+                            }
+                        }
+                    } catch (error) {
+                        logWarn("读取网盘弹幕元数据失败", { error: error.message || String(error) });
+                    }
+
+                    return result;
+                })();
+
+                const [playInfoResult, metadataResult] = await Promise.allSettled([playInfoPromise, metadataPromise]);
+                if (playInfoResult.status !== "fulfilled") {
+                    throw playInfoResult.reason || new Error("无法获取播放地址");
+                }
+
+                const playInfo = playInfoResult.value;
+                const urlList = Array.isArray(playInfo?.url) ? playInfo.url : [];
+                logInfo("网盘播放信息返回", {
+                    shareURL,
+                    fileId,
+                    flag,
+                    callerSource,
+                    routeType,
+                    urlCount: urlList.length,
+                    routeFlags: urlList.map((item) => item?.name || "播放").filter(Boolean),
+                    hasHeader: !!playInfo?.header && Object.keys(playInfo.header || {}).length > 0,
+                });
+                const urlsResult = urlList.map((item) => ({
+                    name: item.name || "播放",
+                    url: item.url,
+                }));
+                if (urlsResult.length > 0) {
+                    const header = playInfo?.header || {};
+                    const shareURLLower = String(shareURL || "").toLowerCase();
+                    const isUcDrive = shareURLLower.includes("drive.uc.cn") || shareURLLower.includes("pc-api.uc.cn") || shareURLLower.includes("uc.cn/s/");
+                    logInfo("网盘播放结果出参", {
+                        shareURL,
+                        fileId,
+                        flag,
+                        callerSource,
+                        routeType,
+                        isUcDrive,
+                        headerKeys: Object.keys(header || {}),
+                        urlsPreview: urlsResult.map((item) => ({ name: item.name, url: String(item.url || "").slice(0, 160) })),
+                    });
+
+                    const metadataValue = metadataResult.status === "fulfilled" ? metadataResult.value : null;
+                    const finalDanmaku = metadataValue?.danmakuList?.length ? metadataValue.danmakuList : (playInfo?.danmaku || []);
+
+                    return {
+                        urls: urlsResult,
+                        header,
+                        parse: 0,
+                        danmaku: finalDanmaku};
+                }
+            } catch (error) {
+                logWarn("网盘文件播放失败，回退 push", { shareURL, fileId, flag, callerSource, error: error.message || String(error) });
+                const pushUrl = shareURL.startsWith("push://") ? shareURL : `push://${shareURL}`;
+                return {
+                    urls: [{ name: "网盘资源", url: pushUrl }],
+                    parse: 0,
+                    header: {},
+                };
+            }
+        }
+    }
+
+    // 磁力直出
+    if (playId.startsWith("magnet:")) {
+        return {
+            urls: [{ name: "磁力资源", url: playId }],
+            parse: 0,
+            header: {
+                ...DEFAULT_HEADERS,
+                Referer: `${getCurrentHost()}/`,
+            },
+        };
+    }
+
+    // 网盘走 push
+    if (isPanUrl(playId)) {
+        const pushUrl = playId.startsWith("push://") ? playId : `push://${playId}`;
+        return {
+            urls: [{ name: "网盘资源", url: pushUrl }],
+            parse: 0,
+            header: {},
+        };
+    }
+
+    // 常规剧集 ID: videoId|lineIndex|episodeIndex
+    let resolvedPlayUrl = "";
+    const parts = playId.split("|");
+    if (parts.length === 3 && parts.every((x) => x !== "")) {
+        const videoId = parts[0];
+        const lineIndex = parseInt(parts[1], 10);
+        const episodeIndex = parseInt(parts[2], 10);
+
+        if (Number.isFinite(lineIndex) && Number.isFinite(episodeIndex)) {
+            resolvedPlayUrl = `${getCurrentHost()}/py/${videoId}-${lineIndex + 1}-${episodeIndex + 1}.html`;
+        }
+    }
+
+    if (!resolvedPlayUrl) {
+        resolvedPlayUrl = fixUrl(playId, getCurrentHost());
+    }
+
+    const defaultHeader = {
+        ...DEFAULT_HEADERS,
+        Referer: `${getCurrentHost()}/`,
+        Origin: getCurrentHost(),
+    };
+
+    // 直接视频地址不再二次嗅探
+    if (isDirectVideoUrl(resolvedPlayUrl)) {
+        logInfo("检测到直链视频，直接返回", { url: resolvedPlayUrl });
+        return {
+            urls: [{ name: "默认线路", url: resolvedPlayUrl }],
+            parse: 0,
+            header: defaultHeader,
+        };
+    }
+
+    // 非视频后缀：走嗅探提取真实地址
+    try {
+        logInfo("检测到非视频格式，开始嗅探", { url: resolvedPlayUrl });
+        const sniffed = await OmniBox.sniffVideo(resolvedPlayUrl);
+        if (sniffed && sniffed.url) {
+            logInfo("嗅探成功", { url: sniffed.url });
+
+            let danmaku = [];
+            if (DANMU_API) {
+                let vodName = String(params.vodName || "").trim();
+                let episodeName = String(params.episodeName || playMeta.e || "").trim();
+                let scrapedDanmuFileName = "";
+
+                try {
+                    const videoIdFromParam = params.vodId ? String(params.vodId) : "";
+                    const videoIdFromMeta = playMeta?.sid ? String(playMeta.sid) : "";
+                    const videoIdForScrape = videoIdFromParam || videoIdFromMeta;
+                    if (videoIdForScrape) {
+                        const metadata = await OmniBox.getScrapeMetadata(videoIdForScrape);
+                        if (metadata && metadata.scrapeData) {
+                            const mapping = (metadata.videoMappings || []).find((m) => m?.fileId === playMeta?.fid);
+                            scrapedDanmuFileName = buildScrapedDanmuFileName(
+                                metadata.scrapeData,
+                                metadata.scrapeType || "",
+                                mapping,
+                                vodName,
+                                episodeName
+                            );
+                            if (metadata.scrapeData.title) {
+                                vodName = metadata.scrapeData.title;
+                            }
+                            if (mapping?.episodeName) {
+                                episodeName = mapping.episodeName;
+                            }
+                        }
+                    }
+                } catch (error) {
+                    logWarn("读取刮削元数据失败", { error: error.message || String(error) });
+                }
+
+                const fileName = scrapedDanmuFileName || buildFileNameForDanmu(vodName, episodeName);
+                if (fileName) {
+                    danmaku = await matchDanmu(fileName);
+                    if (danmaku.length > 0) {
+                        logInfo("弹幕匹配成功", { count: danmaku.length, fileName });
+                    }
+                }
+            }
+
+            return {
+                urls: [{ name: "嗅探线路", url: sniffed.url }],
+                parse: 0,
+                header: sniffed.header || defaultHeader,
+                danmaku,
+            };
+        }
+        logWarn("嗅探未返回有效直链，回退解析页", { url: resolvedPlayUrl });
+    } catch (error) {
+        logWarn("嗅探失败，回退解析页", { error: error.message || String(error) });
+    }
+
+    return {
+        urls: [{ name: "默认线路", url: resolvedPlayUrl }],
+        parse: 1,
+        header: defaultHeader,
+    };
+}
+
+module.exports = { home, category, search, detail, play };
+
+const runner = require("spider_runner");
+runner.run(module.exports);
+
+});
+
+_load(6, "在线之家", function (module, exports, require) {
+// @name 在线之家
+// @author @PFR001, @lucky_TJQ
+// @description 刮削：支持，弹幕：支持，嗅探：支持
+// @dependencies: axios, cheerio
+// @version 1.2.6
+// @downloadURL https://gh-proxy.org/https://github.com/Silent1566/OmniBox-Spider/raw/refs/heads/main/影视/采集/在线之家.js
+
+/**
+ * ============================================================================
+ * 在线之家 (ZXZJ)
+ * https://www.zxzjhd.com
+ * 
+ * 功能特性：
+ * - 刮削：支持 (集成 TMDB 元数据)
+ * - 弹幕：支持 (通过弹幕 API 匹配)
+ * - 嗅探：支持 (智能视频地址提取)
+ * ============================================================================
+ */
+const axios = require("axios");
+const cheerio = require("cheerio");
+const OmniBox = require("omnibox_sdk");
+
+// ========== 全局配置 ==========
+const host = 'https://www.zxzjhd.com';
+
+// 弹幕 API 地址 (优先使用环境变量)
+const DANMU_API = process.env.DANMU_API || "";
+
+// 基础 Headers (用于列表页等普通请求)
+const baseHeaders = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    'Referer': host + '/',
+    'Origin': host,
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
+};
+
+const axiosInstance = axios.create({
+    timeout: 15000,
+    headers: baseHeaders,
+    validateStatus: status => true
+});
+
+/**
+ * 日志工具函数
+ */
+const logInfo = (message, data = null) => {
+    const output = data ? `${message}: ${JSON.stringify(data)}` : message;
+    OmniBox.log("info", `[ZXZJ-DEBUG] ${output}`);
+};
+
+const logError = (message, error) => {
+    OmniBox.log("error", `[ZXZJ-DEBUG] ${message}: ${error.message || error}`);
+};
+
+/**
+ * 修复 HTML 被 JSON 包裹的反爬响应
+ */
+const fixJsonWrappedHtml = (html) => {
+    if (!html || typeof html !== "string") return html;
+    const trimmed = html.trim();
+    if (trimmed.startsWith("<") || trimmed.startsWith("<!DOCTYPE")) return trimmed;
+    if (trimmed.startsWith("\"") && trimmed.endsWith("\"")) {
+        try {
+            const parsed = JSON.parse(trimmed);
+            if (typeof parsed === "string" && parsed.trim().startsWith("<")) {
+                return parsed.trim();
+            }
+        } catch { }
+    }
+    return trimmed;
+};
+
+/**
+ * 元数据编解码 (用于透传参数)
+ */
+const encodeMeta = (obj) => {
+    try {
+        return Buffer.from(JSON.stringify(obj || {}), "utf8").toString("base64");
+    } catch {
+        return "";
+    }
+};
+
+const decodeMeta = (str) => {
+    try {
+        const raw = Buffer.from(str || "", "base64").toString("utf8");
+        return JSON.parse(raw || "{}");
+    } catch {
+        return {};
+    }
+};
+
+/**
+ * 标准化 URL
+ */
+const fixUrl = (url) => {
+    if (!url) return '';
+    if (url.startsWith('http')) return url;
+    if (url.startsWith('//')) return 'https:' + url;
+    return url.startsWith('/') ? `${host}${url}` : `${host}/${url}`;
+};
+
+/**
+ * 处理图片 URL，如果是外部 URL 则通过代理
+ * @param {string} imageUrl - 原始图片 URL
+ * @param {string} baseURL - 代理服务器基础 URL
+ * @param {string} referer - 图片来源的 Referer (默认取 imageUrl 的域名)
+ * @returns {string} 处理后的图片 URL
+ */
+const processImageUrl = (imageUrl, baseURL = "", referer = "") => {
+    if (!imageUrl) return '';
+
+    // 标准化 URL
+    let url = fixUrl(imageUrl);
+
+    // 检查是否是外部 URL（不是当前 host 的 URL）
+    const isExternalUrl = !url.includes(host) && url.startsWith('http');
+
+    // 如果是外部 URL 且有 baseURL，则通过代理
+    if (isExternalUrl && baseURL) {
+        try {
+            // 如果没有指定 referer，从 imageUrl 的域名提取
+            let finalReferer = referer;
+            if (!finalReferer) {
+                try {
+                    const urlObj = new URL(url);
+                    finalReferer = `${urlObj.protocol}//${urlObj.host}`;
+                } catch (e) {
+                    finalReferer = host;
+                }
+            }
+
+            // 构建带 headers 的 URL 格式: url@Referer=value
+            const urlWithHeaders = `${url}@Referer=${finalReferer}`;
+            // 编码 URL 参数
+            const encodedUrl = encodeURIComponent(urlWithHeaders);
+            // 返回代理 URL
+            return `${baseURL}/api/proxy/image?url=${encodedUrl}`;
+        } catch (error) {
+            logError("处理图片 URL 失败", error);
+            return url;
+        }
+    }
+
+    return url;
+};
+
+/**
+ * 统一请求 HTML
+ */
+const requestHtml = async (url, options = {}) => {
+    try {
+        const res = await axiosInstance.get(url, {
+            headers: {
+                ...baseHeaders,
+                ...(options.headers || {})
+            },
+            responseType: "text",
+            ...options
+        });
+        return fixJsonWrappedHtml(res.data);
+    } catch (e) {
+        logError("请求失败", e);
+        return "";
+    }
+};
+
+// ========== 解密算法 ==========
+const DecryptTools = {
+    decrypt: function (encryptedData) {
+        try {
+            // 1. 翻转字符串
+            const reversed = encryptedData.split('').reverse().join('');
+            // 2. Hex 转 String
+            let hexDecoded = '';
+            for (let i = 0; i < reversed.length; i += 2) {
+                hexDecoded += String.fromCharCode(parseInt(reversed.substr(i, 2), 16));
+            }
+            // 3. 移除中间混淆字符 (7位)
+            const len = hexDecoded.length;
+            const splitLen = Math.floor((len - 7) / 2);
+            return hexDecoded.substring(0, splitLen) + hexDecoded.substring(splitLen + 7);
+        } catch (e) {
+            logError("解密失败", e);
+            return null;
+        }
+    }
+};
+
+/**
+ * 判断网盘线路名称
+ */
+const isPanLineName = (name) => {
+    if (!name) return false;
+    const n = String(name);
+    return n.includes("网盘") || n.includes("百度") || n.includes("夸克") || n.includes("UC") || n.includes("阿里") || n.includes("迅雷") || n.includes("天翼") || n.includes("115") || n.includes("123");
+};
+
+/**
+ * 判断是否为网盘分享链接
+ */
+const isPanUrl = (url) => {
+    if (!url) return false;
+    const u = url.toLowerCase();
+    return u.includes("pan.baidu.com") || u.includes("quark.cn") || u.includes("pan.quark.cn") || u.includes("drive.uc.cn") || u.includes("aliyundrive.com") || u.includes("alipan.com") || u.includes("xunlei.com") || u.includes("cloud.189.cn") || u.includes("115.com") || u.includes("123pan.com");
+};
+
+const normalizeShareUrl = (url) => {
+    if (!url) return "";
+    let u = String(url).trim();
+    if (u.startsWith("push://")) {
+        u = u.slice("push://".length);
+    }
+    if (u.startsWith("push:")) {
+        u = u.slice("push:".length);
+    }
+    return u.trim();
+};
+
+/**
+ * 从播放页提取网盘链接
+ */
+const extractPanUrlFromPage = async (playPageUrl) => {
+    const html = await requestHtml(playPageUrl, {});
+    if (!html) return "";
+
+    const playerMatch = html.match(/var\s+player_aaaa\s*=\s*(\{[\s\S]*?\})\s*;?\s*<\/script>/i);
+    if (!playerMatch) return "";
+
+    try {
+        const cleanStr = playerMatch[1]
+            .replace(/\\"/g, "\u0001")
+            .replace(/\"/g, "\"")
+            .replace(/\u0001/g, "\"")
+            .replace(/\\u([0-9a-fA-F]{4})/g, (match, grp) => String.fromCharCode(parseInt(grp, 16)))
+            .replace(/\\\//g, "/");
+
+        const playerData = JSON.parse(cleanStr);
+        return playerData.url || "";
+    } catch (e) {
+        logInfo(`解析 player_aaaa 失败: ${e.message}`);
+        return "";
+    }
+};
+
+/**
+ * 判断是否为视频文件
+ */
+const isVideoFile = (file) => {
+    if (!file || !file.file_name) return false;
+    const fileName = String(file.file_name).toLowerCase();
+    const videoExtensions = [".mp4", ".mkv", ".avi", ".flv", ".mov", ".wmv", ".m3u8", ".ts", ".webm", ".m4v"];
+    for (const ext of videoExtensions) {
+        if (fileName.endsWith(ext)) return true;
+    }
+    if (file.format_type) {
+        const formatType = String(file.format_type).toLowerCase();
+        if (formatType.includes("video") || formatType.includes("mpeg") || formatType.includes("h264")) return true;
+    }
+    return false;
+};
+
+const getFileId = (file) => file?.fid || file?.file_id || "";
+const getFileName = (file) => file?.file_name || file?.name || "";
+
+/**
+ * 递归获取所有视频文件
+ */
+const getAllVideoFiles = async (shareURL, files) => {
+    const videoFiles = [];
+    for (const file of files || []) {
+        if (file.file && isVideoFile(file)) {
+            videoFiles.push(file);
+        } else if (file.dir) {
+            try {
+                const subFileId = getFileId(file);
+                if (!subFileId) continue;
+                const subFileList = await OmniBox.getDriveFileList(shareURL, subFileId);
+                if (subFileList && Array.isArray(subFileList.files)) {
+                    const subVideoFiles = await getAllVideoFiles(shareURL, subFileList.files);
+                    videoFiles.push(...subVideoFiles);
+                }
+            } catch (error) {
+                logInfo(`获取子目录文件失败: ${error.message}`);
+            }
+        }
+    }
+    return videoFiles;
+};
+
+/**
+ * 获取网盘分享的文件列表（带缓存）
+ */
+const panShareCache = new Map();
+
+const loadPanFiles = async (shareURL) => {
+    if (!shareURL) return null;
+    if (panShareCache.has(shareURL)) return panShareCache.get(shareURL);
+    try {
+        const driveInfo = await OmniBox.getDriveInfoByShareURL(shareURL);
+        const fileList = await OmniBox.getDriveFileList(shareURL, "0");
+        const files = Array.isArray(fileList?.files) ? fileList.files : [];
+        const videos = await getAllVideoFiles(shareURL, files);
+        const result = { driveInfo, videos };
+        panShareCache.set(shareURL, result);
+        return result;
+    } catch (error) {
+        logInfo(`读取网盘文件失败: ${error.message}`);
+        return null;
+    }
+};
+
+/**
+ * 嗅探播放页，兜底提取真实视频地址
+ */
+const sniffZxzjPlay = async (playUrl) => {
+    if (!playUrl) return null;
+    try {
+        logInfo("尝试嗅探播放页", playUrl);
+        const sniffed = await OmniBox.sniffVideo(playUrl);
+        if (sniffed && sniffed.url) {
+            logInfo("嗅探成功", sniffed.url);
+            return {
+                urls: [{ name: "嗅探线路", url: sniffed.url }],
+                parse: 0,
+                header: sniffed.header || baseHeaders
+            };
+        }
+    } catch (error) {
+        logInfo(`嗅探失败: ${error.message}`);
+    }
+    return null;
+};
+
+/**
+ * 从标题中提取集数
+ */
+function extractEpisode(title) {
+    if (!title) return "";
+
+    const processedTitle = title.trim();
+
+    // 1. S01E03 格式
+    const seMatch = processedTitle.match(/[Ss](?:\d{1,2})?[-._\s]*[Ee](\d{1,3})/i);
+    if (seMatch) return seMatch[1];
+
+    // 2. 中文格式：第XX集/话
+    const cnMatch = processedTitle.match(/第\s*([0-9]+)\s*[集话章节回期]/);
+    if (cnMatch) return cnMatch[1];
+
+    // 3. EP/E 格式
+    const epMatch = processedTitle.match(/\b(?:EP|E)[-._\s]*(\d{1,3})\b/i);
+    if (epMatch) return epMatch[1];
+
+    // 4. 括号格式 [03]
+    const bracketMatch = processedTitle.match(/[\[\(【（](\d{1,3})[\]\)】）]/);
+    if (bracketMatch) {
+        const num = bracketMatch[1];
+        if (!["720", "1080", "480"].includes(num)) return num;
+    }
+
+    return "";
+}
+
+/**
+ * 构建用于弹幕匹配的文件名
+ */
+function buildFileNameForDanmu(vodName, episodeTitle) {
+    if (!vodName) return "";
+
+    // 如果没有集数信息，直接返回视频名（电影）
+    if (!episodeTitle || episodeTitle === '正片' || episodeTitle === '播放') {
+        return vodName;
+    }
+
+    // 提取集数
+    const digits = extractEpisode(episodeTitle);
+    if (digits) {
+        const epNum = parseInt(digits, 10);
+        if (epNum > 0) {
+            // 构建标准格式：视频名 S01E01
+            if (epNum < 10) {
+                return `${vodName} S01E0${epNum}`;
+            } else {
+                return `${vodName} S01E${epNum}`;
+            }
+        }
+    }
+
+    // 无法提取集数，返回视频名
+    return vodName;
+}
+
+const buildScrapedEpisodeName = (scrapeData, mapping, originalName) => {
+    if (!mapping || mapping.episodeNumber === 0 || (mapping.confidence && mapping.confidence < 0.5)) {
+        return originalName;
+    }
+    if (mapping.episodeName) {
+        const epName = mapping.episodeNumber + "." + mapping.episodeName;
+        return epName;
+    }
+    if (scrapeData && Array.isArray(scrapeData.episodes)) {
+        const hit = scrapeData.episodes.find(
+            (ep) => ep.episodeNumber === mapping.episodeNumber && ep.seasonNumber === mapping.seasonNumber
+        );
+        if (hit?.name) {
+            return `${hit.episodeNumber}.${hit.name}`;
+        }
+    }
+    return originalName;
+};
+
+const buildScrapedDanmuFileName = (scrapeData, scrapeType, mapping, fallbackVodName, fallbackEpisodeName) => {
+    if (!scrapeData) {
+        return buildFileNameForDanmu(fallbackVodName, fallbackEpisodeName);
+    }
+    if (scrapeType === "movie") {
+        return scrapeData.title || fallbackVodName;
+    }
+    const title = scrapeData.title || fallbackVodName;
+    const seasonAirYear = scrapeData.seasonAirYear || "";
+    const seasonNumber = mapping?.seasonNumber || 1;
+    const episodeNumber = mapping?.episodeNumber || 1;
+    return `${title}.${seasonAirYear}.S${String(seasonNumber).padStart(2, "0")}E${String(episodeNumber).padStart(2, "0")}`;
+};
+
+/**
+ * 匹配弹幕
+ */
+async function matchDanmu(fileName) {
+    if (!DANMU_API || !fileName) {
+        return [];
+    }
+
+    try {
+        logInfo(`匹配弹幕: ${fileName}`);
+
+        const matchUrl = `${DANMU_API}/api/v2/match`;
+        const response = await OmniBox.request(matchUrl, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            },
+            body: JSON.stringify({ fileName: fileName }),
+        });
+
+        if (response.statusCode !== 200) {
+            logInfo(`弹幕匹配失败: HTTP ${response.statusCode}`);
+            return [];
+        }
+
+        const matchData = JSON.parse(response.body);
+
+        // 检查是否匹配成功
+        if (!matchData.isMatched) {
+            logInfo("弹幕未匹配到");
+            return [];
+        }
+
+        // 获取matches数组
+        const matches = matchData.matches || [];
+        if (matches.length === 0) {
+            return [];
+        }
+
+        // 取第一个匹配项
+        const firstMatch = matches[0];
+        const episodeId = firstMatch.episodeId;
+        const animeTitle = firstMatch.animeTitle || "";
+        const episodeTitle = firstMatch.episodeTitle || "";
+
+        if (!episodeId) {
+            return [];
+        }
+
+        // 构建弹幕名称
+        let danmakuName = "弹幕";
+        if (animeTitle && episodeTitle) {
+            danmakuName = `${animeTitle} - ${episodeTitle}`;
+        } else if (animeTitle) {
+            danmakuName = animeTitle;
+        } else if (episodeTitle) {
+            danmakuName = episodeTitle;
+        }
+
+        // 构建弹幕URL
+        const danmakuURL = `${DANMU_API}/api/v2/comment/${episodeId}?format=xml`;
+
+        logInfo(`弹幕匹配成功: ${danmakuName}`);
+
+        return [
+            {
+                name: danmakuName,
+                url: danmakuURL,
+            },
+        ];
+    } catch (error) {
+        logInfo(`弹幕匹配失败: ${error.message}`);
+        return [];
+    }
+}
+
+// ========== 列表解析逻辑 ==========
+/**
+ * 解析视频列表
+ * @param {Object} $ - cheerio 实例
+ * @param {string} baseURL - 代理服务器基础 URL
+ * @returns {Array} 视频列表
+ */
+const parseVideoList = ($, baseURL = "") => {
+    const list = [];
+    const items = $('.stui-vodlist__item, .stui-vodlist li, .v-item, .public-list-box');
+    items.each((_, element) => {
+        const $item = $(element);
+        const $link = $item.find('a.stui-vodlist__thumb, a.v-thumb, a.public-list-exp');
+        if ($link.length === 0) return;
+
+        const title = $link.attr('title') || $item.find('.title a').text().trim();
+        const href = $link.attr('href');
+        let pic = $link.attr('data-original') || $link.attr('data-src') || $link.attr('src');
+
+        // 处理背景图样式
+        if (!pic) {
+            const style = $link.attr('style') || '';
+            const match = style.match(/url\((['"]?)(.*?)\1\)/);
+            if (match) pic = match[2];
+        }
+
+        const remarks = $item.find('.pic-text, .v-remarks, .public-list-prb').text().trim();
+
+        if (title && href) {
+            list.push({
+                vod_id: href,
+                vod_name: title,
+                vod_pic: processImageUrl(pic, baseURL),
+                vod_remarks: remarks || ''
+            });
+        }
+    });
+    return list;
+};
+
+// ========== 分类与筛选配置 ==========
+const CLASS_LIST = [
+    { type_id: '1', type_name: '电影' },
+    { type_id: '2', type_name: '美剧' },
+    { type_id: '3', type_name: '韩剧' },
+    { type_id: '4', type_name: '日剧' },
+    { type_id: '5', type_name: '泰剧' },
+    { type_id: '6', type_name: '动漫' }
+];
+
+const buildFilterOptions = (values = [], allName = "全部") => [
+    { name: allName, value: "" },
+    ...values.filter(Boolean).map((item) => ({ name: item, value: item }))
+];
+
+const buildYearOptions = () => {
+    const currentYear = Math.max(new Date().getFullYear(), 2026);
+    const years = [];
+    for (let year = currentYear; year >= 2000; year--) {
+        years.push(String(year));
+    }
+    return buildFilterOptions(years);
+};
+
+const buildFilterList = ({ classes = [], areas = [], includeClass = true, includeArea = true } = {}) => {
+    const list = [];
+    if (includeClass && classes.length > 0) {
+        list.push({ key: "class", name: "按剧情", init: "", value: buildFilterOptions(classes) });
+    }
+    if (includeArea && areas.length > 0) {
+        list.push({ key: "area", name: "按地区", init: "", value: buildFilterOptions(areas) });
+    }
+    list.push({ key: "year", name: "按年份", init: "", value: buildYearOptions() });
+    return list;
+};
+
+const DRAMA_CLASSES = ["剧情", "喜剧", "爱情", "动作", "悬疑", "恐怖", "奇幻", "惊悚", "犯罪", "科幻", "音乐", "其他"];
+
+const FILTERS = {
+    "1": buildFilterList({
+        classes: ["喜剧", "爱情", "恐怖", "动作", "科幻", "剧情", "战争", "警匪", "犯罪", "动画", "奇幻", "冒险", "悬疑", "惊悚", "青春", "情色"],
+        areas: ["大陆", "香港", "台湾", "欧美", "韩国", "日本", "泰国", "印度", "俄罗斯", "其他"]
+    }),
+    "2": buildFilterList({ classes: DRAMA_CLASSES, areas: ["欧美"] }),
+    "3": buildFilterList({ classes: DRAMA_CLASSES, areas: ["韩国"] }),
+    "4": buildFilterList({ classes: DRAMA_CLASSES, areas: ["日本"] }),
+    "5": buildFilterList({ includeClass: false, includeArea: false }),
+    "6": buildFilterList({
+        classes: ["情感", "科幻", "热血", "推理", "搞笑", "冒险", "萝莉", "校园", "动作", "机战", "运动", "战争", "少年", "少女", "社会", "原创", "亲子", "益智", "励志", "其他"],
+        areas: ["国产", "日本", "欧美", "其他"]
+    })
+};
+
+const parseFilters = (filters) => {
+    if (!filters) return {};
+    if (typeof filters === "object") return filters;
+    if (typeof filters === "string") {
+        try {
+            const parsed = JSON.parse(filters);
+            return parsed && typeof parsed === "object" ? parsed : {};
+        } catch {
+            return {};
+        }
+    }
+    return {};
+};
+
+const normalizeFilters = (...sources) => Object.assign({}, ...sources.map(parseFilters));
+
+const getFilterValue = (filters, keys = []) => {
+    for (const key of keys) {
+        const value = filters?.[key];
+        if (value !== undefined && value !== null && String(value).trim() !== "") {
+            return String(value).trim();
+        }
+    }
+    return "";
+};
+
+const encodeVodshowPart = (value) => encodeURIComponent(String(value || "").trim());
+
+const buildCategoryUrl = (categoryId, page, filters = {}) => {
+    const tid = encodeVodshowPart(categoryId || "1");
+    const area = encodeVodshowPart(getFilterValue(filters, ["area"]));
+    const by = encodeVodshowPart(getFilterValue(filters, ["by", "sort"]));
+    const genre = encodeVodshowPart(getFilterValue(filters, ["class", "type", "genre"]));
+    const year = encodeVodshowPart(getFilterValue(filters, ["year"]));
+    const pg = Math.max(1, parseInt(page) || 1);
+    return `${host}/vodshow/${tid}-${area}-${by}-${genre}-----${pg}---${year}.html`;
+};
+
+// ========== 核心功能函数 ==========
+
+/**
+ * 首页
+ */
+async function home(params, context) {
+    logInfo("进入首页");
+
+    const baseURL = context?.baseURL || "";
+    const url = `${host}`;
+    const html = await requestHtml(url);
+    const $ = cheerio.load(html || "");
+    const list = parseVideoList($, baseURL);
+
+    logInfo(`获取到 ${list.length} 个视频`);
+    return {
+        list: list,
+        class: CLASS_LIST,
+        filters: FILTERS
+    };
+}
+
+/**
+ * 分类
+ */
+async function category(params, context) {
+    const categoryId = String(params.categoryId || params.type_id || "1");
+    const filters = normalizeFilters(params.extend, params.ext, params.filter, params.filters);
+    const { page } = params;
+    const pg = parseInt(page) || 1;
+    const baseURL = context?.baseURL || "";
+    logInfo(`请求分类: ${categoryId}, 页码: ${pg}, 筛选: ${JSON.stringify(filters)}`);
+
+    try {
+        const url = buildCategoryUrl(categoryId, pg, filters);
+        const html = await requestHtml(url);
+        const $ = cheerio.load(html || "");
+        const list = parseVideoList($, baseURL);
+
+        logInfo(`获取到 ${list.length} 个视频`);
+        return { list: list, page: pg, pagecount: list.length >= 12 ? pg + 1 : pg, filters: FILTERS[categoryId] || [] };
+    } catch (e) {
+        logError("分类请求失败", e);
+        return { list: [], page: pg, pagecount: 0, filters: FILTERS[categoryId] || [] };
+    }
+}
+
+/**
+ * 搜索
+ */
+async function search(params, context) {
+    const wd = params.keyword || params.wd || "";
+    const pg = parseInt(params.page) || 1;
+    const baseURL = context?.baseURL || "";
+    logInfo(`搜索关键词: ${wd}, 页码: ${pg}`);
+
+    try {
+        const url = `${host}/vodsearch/${encodeURIComponent(wd)}----------${pg}---.html`;
+        const html = await requestHtml(url);
+        const $ = cheerio.load(html || "");
+        const list = parseVideoList($, baseURL);
+
+        logInfo(`搜索到 ${list.length} 个结果`);
+        return { list: list, page: pg, pagecount: list.length >= 20 ? pg + 1 : pg };
+    } catch (e) {
+        logError("搜索失败", e);
+        return { list: [], page: pg, pagecount: 0 };
+    }
+}
+
+/**
+ * 详情
+ */
+async function detail(params, context) {
+    const videoId = params.videoId;
+    const url = fixUrl(videoId);
+    const baseURL = context?.baseURL || "";
+    logInfo(`请求详情 ID: ${videoId}`);
+
+    try {
+        const html = await requestHtml(url);
+        const $ = cheerio.load(html);
+
+        // 兼容多种详情页布局
+        const title = $('h1.title').text().trim() || $('.stui-content__detail .title').text().trim() || $('title').text().split('-')[0].trim();
+        let pic = $('.stui-content__thumb img').attr('data-original') || $('.stui-content__thumb img').attr('src') || '';
+        const desc = $('.stui-content__detail .desc').text().trim() || $('meta[name="description"]').attr('content') || '';
+
+        // 处理图片 URL
+        pic = processImageUrl(pic, baseURL);
+
+        const playSources = [];
+        const $playlists = $(".stui-content__playlist, .stui-pannel__data ul, .playlist");
+
+        const playlistTasks = [];
+        const playlistResults = [];
+
+        $playlists.each((index, listElem) => {
+            let sourceName = "默认线路";
+            const $prevHead = $(listElem).prev(".stui-vodlist__head, .stui-pannel__head");
+            if ($prevHead.length > 0) {
+                sourceName = $prevHead.find("h3").text().trim() || sourceName;
+            }
+
+            const isPanLine = isPanLineName(sourceName);
+            const $links = $(listElem).find("li a");
+
+            playlistTasks.push(
+                (async () => {
+                    const episodes = [];
+
+                    if (isPanLine) {
+                        const panTasks = [];
+                        $links.each((idx, a) => {
+                            const $a = $(a);
+                            const episodeName = $a.text().trim() || `第${idx + 1}集`;
+                            const href = $a.attr("href") || "";
+                            const playPageUrl = fixUrl(href);
+                            panTasks.push(
+                                (async () => {
+                                    const panUrl = await extractPanUrlFromPage(playPageUrl);
+                                    if (!panUrl) return null;
+
+                                    const shareURL = normalizeShareUrl(panUrl);
+                                    if (!isPanUrl(shareURL)) {
+                                        return null;
+                                    }
+
+                                    const panInfo = await loadPanFiles(shareURL);
+                                    const files = panInfo?.videos || [];
+
+                                    if (!files.length) {
+                                        const pushUrl = shareURL.startsWith("push://") ? shareURL : `push://${shareURL}`;
+                                        const fid = `${videoId}#pan#${idx}`;
+                                        const combinedId = `${pushUrl}|||${encodeMeta({ sid: String(videoId || ""), fid, v: title || "", e: episodeName })}`;
+                                        return [{
+                                            name: episodeName,
+                                            playId: combinedId,
+                                            _fid: fid,
+                                            _rawName: episodeName
+                                        }];
+                                    }
+
+                                    const seriesEpisodes = [];
+                                    for (const file of files) {
+                                        const fileId = getFileId(file);
+                                        if (!fileId) continue;
+                                        const fileName = getFileName(file) || episodeName;
+                                        const filePlayId = `${shareURL}|${fileId}`;
+                                        const fid = `${videoId}#pan#${fileId}`;
+                                        const combinedId = `${filePlayId}|||${encodeMeta({ sid: String(videoId || ""), fid, v: title || "", e: fileName })}`;
+                                        seriesEpisodes.push({
+                                            name: fileName,
+                                            playId: combinedId,
+                                            _fid: fid,
+                                            _rawName: fileName
+                                        });
+                                    }
+
+                                    return seriesEpisodes.length ? seriesEpisodes : null;
+                                })()
+                            );
+                        });
+
+                        const panEpisodes = await Promise.all(panTasks);
+                        panEpisodes.filter(Boolean).forEach((batch) => {
+                            if (Array.isArray(batch)) {
+                                batch.forEach((ep) => episodes.push(ep));
+                            } else if (batch) {
+                                episodes.push(batch);
+                            }
+                        });
+                    } else {
+                        $links.each((idx, a) => {
+                            const $a = $(a);
+                            const episodeName = $a.text().trim() || `第${idx + 1}集`;
+                            const playId = $a.attr("href") || "";
+                            const fid = `${videoId}#0#${episodes.length}`;
+                            const combinedId = `${playId}|||${encodeMeta({ sid: String(videoId || ""), fid, v: title || "", e: episodeName })}`;
+                            episodes.push({
+                                name: episodeName,
+                                playId: combinedId,
+                                _fid: fid,
+                                _rawName: episodeName
+                            });
+                        });
+                    }
+
+                    if (episodes.length > 0) {
+                        playlistResults[index] = { name: sourceName, episodes: episodes };
+                    }
+                })()
+            );
+        });
+
+        if (playlistTasks.length > 0) {
+            await Promise.all(playlistTasks);
+            for (const item of playlistResults) {
+                if (item && item.episodes && item.episodes.length > 0) {
+                    playSources.push(item);
+                }
+            }
+        }
+
+        logInfo(`视频标题: ${title}, 播放链接数: ${playSources.length}`);
+
+        // 准备刮削候选项
+        const scrapeCandidates = [];
+        for (const source of playSources) {
+            for (const ep of source.episodes || []) {
+                if (!ep._fid) continue;
+                scrapeCandidates.push({
+                    fid: ep._fid,
+                    file_id: ep._fid,
+                    file_name: ep._rawName || ep.name || "正片",
+                    name: ep._rawName || ep.name || "正片",
+                    format_type: "video",
+                });
+            }
+        }
+
+        let scrapeData = null;
+        let videoMappings = [];
+        let scrapeType = "";
+
+        // 执行刮削
+        if (scrapeCandidates.length > 0) {
+            try {
+                const videoIdForScrape = String(videoId || "");
+                const scrapingResult = await OmniBox.processScraping(videoIdForScrape, title || "", title || "", scrapeCandidates);
+                logInfo(`刮削处理完成`, { resultLength: JSON.stringify(scrapingResult || {}).length });
+
+                const metadata = await OmniBox.getScrapeMetadata(videoIdForScrape);
+                scrapeData = metadata?.scrapeData || null;
+                videoMappings = metadata?.videoMappings || [];
+                scrapeType = metadata?.scrapeType || "";
+                logInfo("刮削元数据读取完成", { hasScrapeData: !!scrapeData, mappingCount: videoMappings.length, scrapeType });
+            } catch (error) {
+                logError("刮削处理失败", error);
+            }
+        }
+
+        // 应用刮削结果
+        for (const source of playSources) {
+            for (const ep of source.episodes || []) {
+                const mapping = videoMappings.find((m) => m?.fileId === ep._fid);
+                if (!mapping) continue;
+                const oldName = ep.name;
+                const newName = buildScrapedEpisodeName(scrapeData, mapping, oldName);
+                if (newName && newName !== oldName) {
+                    ep.name = newName;
+                    logInfo(`应用刮削后源文件名: ${oldName} -> ${newName}`);
+                }
+                ep._seasonNumber = mapping.seasonNumber;
+                ep._episodeNumber = mapping.episodeNumber;
+            }
+
+            const hasEpisodeNumber = (source.episodes || []).some(
+                (ep) => ep._episodeNumber !== undefined && ep._episodeNumber !== null
+            );
+            if (hasEpisodeNumber) {
+                source.episodes.sort((a, b) => {
+                    const seasonA = a._seasonNumber || 0;
+                    const seasonB = b._seasonNumber || 0;
+                    if (seasonA !== seasonB) return seasonA - seasonB;
+                    const episodeA = a._episodeNumber || 0;
+                    const episodeB = b._episodeNumber || 0;
+                    return episodeA - episodeB;
+                });
+            }
+        }
+
+        const vod = {
+            vod_id: videoId,
+            vod_name: title,
+            vod_pic: pic,
+            vod_content: desc,
+            vod_play_sources: playSources.map((source) => ({
+                name: source.name,
+                episodes: (source.episodes || []).map((ep) => ({
+                    name: ep.name,
+                    playId: ep.playId,
+                })),
+            }))
+        };
+
+        // 应用刮削元数据
+        if (scrapeData) {
+            vod.vod_name = scrapeData.title || vod.vod_name;
+            if (scrapeData.posterPath) {
+                // 处理 TMDB 图片 URL (referer 自动从 URL 域名提取)
+                vod.vod_pic = processImageUrl(`https://image.tmdb.org/t/p/w500${scrapeData.posterPath}`, baseURL);
+            }
+            if (scrapeData.overview) {
+                vod.vod_content = scrapeData.overview;
+            }
+            if (scrapeData.releaseDate) {
+                vod.vod_year = String(scrapeData.releaseDate).substring(0, 4) || "";
+            }
+            const actors = (scrapeData.credits?.cast || []).slice(0, 5).map((c) => c?.name).filter(Boolean).join(",");
+            if (actors) {
+                vod.vod_actor = actors;
+            }
+            const directors = (scrapeData.credits?.crew || [])
+                .filter((c) => c?.job === "Director" || c?.department === "Directing")
+                .slice(0, 3)
+                .map((c) => c?.name)
+                .filter(Boolean)
+                .join(",");
+            if (directors) {
+                vod.vod_director = directors;
+            }
+        }
+
+        return {
+            list: [vod]
+        };
+    } catch (e) {
+        logError("详情获取失败", e);
+        return { list: [] };
+    }
+}
+
+// ========== 播放解析 (核心) ==========
+/**
+ * 播放解析
+ * 支持：直接解密、嗅探、弹幕匹配
+ */
+async function play(params) {
+    let playId = params.playId;
+    const flag = params.flag || "";
+    logInfo(`准备播放 ID: ${playId}, flag: ${flag}`);
+
+    let vodName = "";
+    let episodeName = "";
+    let playMeta = {};
+
+    // 解析透传参数
+    if (playId && playId.includes("|||")) {
+        const [mainPlayId, metaB64] = playId.split("|||");
+        playId = mainPlayId;
+        playMeta = decodeMeta(metaB64 || "");
+        vodName = playMeta.v || "";
+        episodeName = playMeta.e || "";
+        logInfo(`解析透传信息 - 视频: ${vodName}, 集数: ${episodeName}`);
+    }
+
+    let scrapedDanmuFileName = "";
+    let scrapeType = "";
+    try {
+        const videoIdFromParam = params.vodId ? String(params.vodId) : "";
+        const videoIdFromMeta = playMeta?.sid ? String(playMeta.sid) : "";
+        const videoIdForScrape = videoIdFromParam || videoIdFromMeta;
+
+        if (videoIdForScrape) {
+            const metadata = await OmniBox.getScrapeMetadata(videoIdForScrape);
+            if (metadata && metadata.scrapeData) {
+                const mapping = (metadata.videoMappings || []).find((m) => m?.fileId === playMeta?.fid);
+                scrapeType = metadata.scrapeType || "";
+                scrapedDanmuFileName = buildScrapedDanmuFileName(
+                    metadata.scrapeData,
+                    scrapeType,
+                    mapping,
+                    vodName,
+                    episodeName
+                );
+                if (metadata.scrapeData.title) {
+                    vodName = metadata.scrapeData.title;
+                }
+                if (mapping?.episodeName) {
+                    episodeName = mapping.episodeName;
+                }
+            }
+        }
+    } catch (error) {
+        logInfo(`读取刮削元数据失败: ${error.message}`);
+    }
+
+    try {
+        if (playId && playId.includes("|")) {
+            const [rawShareURL, fileId] = playId.split("|");
+            const shareURL = normalizeShareUrl(rawShareURL);
+            if (shareURL && fileId) {
+                try {
+                    const playInfo = await OmniBox.getDriveVideoPlayInfo(shareURL, fileId, flag || "");
+                    const urlList = Array.isArray(playInfo?.url) ? playInfo.url : [];
+                    const urlsResult = urlList.map((item) => ({
+                        name: item.name || "播放",
+                        url: item.url
+                    }));
+                    return {
+                        urls: urlsResult,
+                        header: playInfo?.header || {},
+                        parse: 0,
+                        danmaku: playInfo?.danmaku || []
+                    };
+                } catch (error) {
+                    logInfo(`网盘播放失败: ${error.message}`);
+                }
+            }
+        }
+
+        if (playId && playId.startsWith("push://")) {
+            return {
+                urls: [{ name: "网盘资源", url: playId }],
+                parse: 0,
+                header: {}
+            };
+        }
+
+        if (isPanUrl(playId)) {
+            const shareURL = normalizeShareUrl(playId);
+            const pushUrl = shareURL.startsWith("push://") ? shareURL : `push://${shareURL}`;
+            return {
+                urls: [{ name: "网盘资源", url: pushUrl }],
+                parse: 0,
+                header: {}
+            };
+        }
+
+        if (flag && isPanLineName(flag) && playId) {
+            const shareURL = normalizeShareUrl(playId);
+            const pushUrl = shareURL.startsWith("push://") ? shareURL : `push://${shareURL}`;
+            return {
+                urls: [{ name: "网盘资源", url: pushUrl }],
+                parse: 0,
+                header: {}
+            };
+        }
+
+        const playPageUrl = fixUrl(playId);
+
+        // 1. 请求播放页
+        const html = await requestHtml(playPageUrl);
+
+        // 2. 提取中间页 URL
+        const urlMatch = html.match(/"url"\s*:\s*"(https:[^"]*?jx\.zxzj[^"]*?)"/);
+
+        if (urlMatch && urlMatch[1]) {
+            const targetUrl = urlMatch[1].replace(/\\/g, '');
+            logInfo(`提取中间页 URL: ${targetUrl}`);
+
+            // 3. 构造严格匹配的 Headers (关键!)
+            const sniffHeaders = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                "Referer": host + "/",
+                "Sec-Fetch-Dest": "iframe",
+                "Sec-Fetch-Mode": "navigate",
+                "Sec-Fetch-Site": "same-site",
+                "Upgrade-Insecure-Requests": "1"
+            };
+
+            // 4. 请求中间页获取源码
+            try {
+                const iframeHtml = await requestHtml(targetUrl, { headers: sniffHeaders });
+
+                // 5. 提取 result_v2 并解密
+                const v2Match = iframeHtml.match(/var\s+result_v2\s*=\s*(\{[\s\S]*?\});/);
+                if (v2Match && v2Match[1]) {
+                    const v2Json = JSON.parse(v2Match[1]);
+                    const encryptedData = v2Json.data || v2Json.url;
+
+                    if (encryptedData) {
+                        const decrypted = DecryptTools.decrypt(encryptedData);
+                        if (decrypted && decrypted.startsWith("http")) {
+                            logInfo(`解密成功: ${decrypted.substring(0, 50)}...`);
+
+                            // 弹幕匹配
+                            let danmakuList = [];
+                            if (DANMU_API && (vodName || params.vodName)) {
+                                const finalVodName = vodName || params.vodName;
+                                const finalEpisodeName = episodeName || params.episodeName || '';
+                                const fileName = scrapedDanmuFileName || buildFileNameForDanmu(finalVodName, finalEpisodeName);
+
+                                logInfo(`尝试匹配弹幕文件名: ${fileName}`);
+                                if (fileName) {
+                                    danmakuList = await matchDanmu(fileName);
+                                }
+                            }
+
+                            const result = {
+                                urls: [{ name: "极速直连", url: decrypted }],
+                                parse: 0,
+                                header: sniffHeaders
+                            };
+
+                            if (danmakuList && danmakuList.length > 0) {
+                                result.danmaku = danmakuList;
+                            }
+
+                            return result;
+                        }
+                    }
+                }
+            } catch (innerErr) {
+                logInfo(`中间页解析失败: ${innerErr.message}`);
+            }
+
+            // 6. 兜底方案：智能嗅探
+            logInfo("尝试智能嗅探");
+            const sniffRes = await sniffZxzjPlay(targetUrl);
+            if (sniffRes) {
+                // 弹幕匹配
+                if (DANMU_API && (vodName || params.vodName)) {
+                    const finalVodName = vodName || params.vodName;
+                    const finalEpisodeName = episodeName || params.episodeName || '';
+                    const fileName = scrapedDanmuFileName || buildFileNameForDanmu(finalVodName, finalEpisodeName);
+
+                    logInfo(`尝试匹配弹幕文件名: ${fileName}`);
+                    if (fileName) {
+                        const danmakuList = await matchDanmu(fileName);
+                        if (danmakuList && danmakuList.length > 0) {
+                            sniffRes.danmaku = danmakuList;
+                        }
+                    }
+                }
+                return sniffRes;
+            }
+        }
+
+    } catch (e) {
+        logError("播放解析失败", e);
+    }
+
+    // 7. 最后的失败回退
+    logInfo("使用回退方案");
+    return {
+        urls: [{ name: "解析失败", url: fixUrl(playId) }],
+        parse: 1,
+        header: baseHeaders
+    };
+}
+
+module.exports = { home, category, search, detail, play };
+
+const runner = require("spider_runner");
+runner.run(module.exports);
+
+});
+
+_load(7, "影视大全", function (module, exports, require) {
+// @name 影视大全
+// @author 梦
+// @description 影视站：https://www.iysdq.tv ，支持首页、分类、搜索、详情与播放解析
+// @version 1.0.2
+// @downloadURL https://gh-proxy.org/https://github.com/Silent1566/OmniBox-Spider/raw/refs/heads/main/影视/采集/影视大全.js
+// @dependencies cheerio
+
+const OmniBox = require("omnibox_sdk");
+const runner = require("spider_runner");
+const cheerio = require("cheerio");
+
+const HOST = "https://www.iysdq.tv";
+const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+const HEADERS = { "User-Agent": UA, Referer: `${HOST}/` };
+
+const CLASS_LIST = [
+  { type_id: "1", type_name: "电影" },
+  { type_id: "2", type_name: "电视剧" },
+  { type_id: "3", type_name: "综艺" },
+  { type_id: "4", type_name: "动漫" },
+  { type_id: "5", type_name: "短剧" },
+];
+
+module.exports = { home, category, detail, search, play };
+runner.run(module.exports);
+
+function getBodyText(res) {
+  const body = res && typeof res === "object" && "body" in res ? res.body : res;
+  if (Buffer.isBuffer(body) || body instanceof Uint8Array) return body.toString();
+  return String(body || "");
+}
+
+function absUrl(url) {
+  const value = String(url || "").trim();
+  if (!value) return "";
+  if (/^https?:\/\//i.test(value)) return value;
+  if (value.startsWith("//")) return `https:${value}`;
+  if (value.startsWith("/")) return `${HOST}${value}`;
+  return `${HOST}/${value.replace(/^\/+/, "")}`;
+}
+
+function cleanText(text) {
+  return String(text || "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function fetchText(url, options = {}) {
+  return OmniBox.request(url, {
+    method: options.method || "GET",
+    headers: {
+      ...HEADERS,
+      ...(options.headers || {}),
+      Referer: options.referer || `${HOST}/`,
+    },
+    timeout: options.timeout || 20000,
+    body: options.body,
+  }).then((res) => {
+    if (!res || Number(res.statusCode) < 200 || Number(res.statusCode) >= 400) {
+      throw new Error(`HTTP ${res?.statusCode || "unknown"} @ ${url}`);
+    }
+    return getBodyText(res);
+  });
+}
+
+function extractVideos(html) {
+  const $ = cheerio.load(html);
+  const videos = [];
+  const seen = new Set();
+
+  $("a.public-list-exp[href*='/voddetail/']").each((_, el) => {
+    const a = $(el);
+    const href = String(a.attr("href") || "").trim();
+    const m = href.match(/\/voddetail\/(\d+)\.html/);
+    const vodId = m ? m[1] : "";
+    const vodName = cleanText(a.attr("title") || a.text());
+    if (!vodId || !vodName || seen.has(vodId)) return;
+    seen.add(vodId);
+
+    const block = a.parent().html() || a.closest(".public-list-box").html() || a.html() || "";
+    let vodPic = absUrl(a.find("img").attr("data-src") || a.find("img").attr("src") || "");
+    if (!vodPic) {
+      const img = block.match(/<img[^>]*(?:data-src|src)="([^"]*)"/i);
+      vodPic = absUrl(img ? img[1] : "");
+    }
+    let vodRemarks = cleanText(a.find(".public-list-prb").text());
+    if (!vodRemarks) vodRemarks = cleanText(a.find(".public-list-subtitle").text());
+
+    videos.push({
+      vod_id: vodId,
+      vod_name: vodName,
+      vod_pic: vodPic,
+      vod_remarks: vodRemarks,
+      vod_content: "",
+    });
+  });
+
+  return videos;
+}
+
+function extractHomeVideos(html) {
+  const sections = [
+    "最新热播",
+    "最新Netflix",
+    "最新电影",
+    "最新连续剧",
+    "最新资讯",
+    "最新动漫",
+    "最新综艺",
+    "最新纪录片",
+  ];
+  for (const sectionName of sections) {
+    const idx = html.indexOf(sectionName);
+    if (idx < 0) continue;
+    const slice = html.slice(idx, idx + 50000);
+    const videos = extractVideos(slice);
+    if (videos.length) return videos;
+  }
+  return extractVideos(html);
+}
+
+function buildDetailFromHtml(html, vodId) {
+  const $ = cheerio.load(html);
+  let vodName = cleanText($(".this-desc-title").first().text());
+  if (!vodName) vodName = cleanText($("h1").first().text());
+
+  let vodPic = absUrl($("img").first().attr("data-src") || $("img").first().attr("src") || "");
+  if (!vodPic) {
+    const pm = html.match(/<img[^>]*(?:data-src|src)="([^"]*(?:upload|cover|vod)[^"]*)"/i);
+    vodPic = absUrl(pm ? pm[1] : "");
+  }
+
+  let vodContent = cleanText($("meta[name='description']").attr("content") || "");
+  if (vodContent) {
+    vodContent = vodContent.replace(/^.*?(?:剧情|简介)[：:]\s*/g, "").replace(/^.*?(?:在线|免费观看)[，,]?\s*/g, "");
+    vodContent = `【by：轻狂书生】\n${vodContent}`;
+  } else {
+    vodContent = "【by：轻狂书生】";
+  }
+
+  const sourceNames = [];
+  $(".anthology-tab a.swiper-slide").each((_, el) => {
+    let text = cleanText($(el).text()).replace(/\d+\s*$/, "").trim();
+    if (text && !text.includes("下载")) sourceNames.push(text);
+  });
+
+  const vodPlaySources = [];
+
+  const boxes = $(".anthology-list-box");
+  if (boxes.length) {
+    boxes.each((idx, el) => {
+      if (sourceNames.length && idx >= sourceNames.length) return;
+      const srcName = sourceNames[idx] || `线路${idx + 1}`;
+      const episodes = [];
+      $(el)
+        .find('a[href*="/vodplay/"]')
+        .each((_, ael) => {
+          const a = $(ael);
+          const epName = cleanText(a.text());
+          const epUrl = absUrl(a.attr("href") || "");
+          if (epName && epUrl) episodes.push({ name: epName, playId: epUrl });
+        });
+      if (episodes.length) {
+        vodPlaySources.push({ name: srcName, episodes });
+      }
+    });
+  }
+
+  if (!vodPlaySources.length) {
+    const listBox = $(".anthology-list-play").first();
+    if (listBox.length) {
+      const episodes = [];
+      listBox.find('a[href*="/vodplay/"]').each((_, ael) => {
+        const a = $(ael);
+        const epName = cleanText(a.text());
+        const epUrl = absUrl(a.attr("href") || "");
+        if (epName && epUrl) episodes.push({ name: epName, playId: epUrl });
+      });
+      if (episodes.length) {
+        vodPlaySources.push({ name: sourceNames[0] || "默认", episodes });
+      }
+    }
+  }
+
+  return {
+    vod_id: String(vodId || ""),
+    vod_name: vodName,
+    vod_pic: vodPic,
+    vod_content: vodContent,
+    vod_play_sources: vodPlaySources,
+  };
+}
+
+async function home(params, context) {
+  try {
+    const html = await fetchText(`${HOST}/`);
+    const list = extractHomeVideos(html);
+    return { class: CLASS_LIST, filters: {}, list };
+  } catch (e) {
+    await OmniBox.log("error", `[影视大全][home] ${e.message}`);
+    return { class: CLASS_LIST, filters: {}, list: [] };
+  }
+}
+
+async function category(params, context) {
+  try {
+    const tid = String(params.categoryId || params.type_id || "1");
+    const page = Math.max(1, parseInt(params.page || 1, 10));
+    const url = `${HOST}/vodshow/${tid}--time------${page}---.html`;
+    const html = await fetchText(url);
+    const list = extractVideos(html);
+    let total = 0;
+    const totalMatch = html.match(/\$\('\.hl-total'\)\.html\('(\d+)'\)/);
+    if (totalMatch) total = parseInt(totalMatch[1], 10) || 0;
+    const pagecount = total > 0 ? Math.max(1, Math.ceil(total / 40)) : page + (list.length >= 40 ? 1 : 0);
+    return { page, pagecount, total, list };
+  } catch (e) {
+    await OmniBox.log("error", `[影视大全][category] ${e.message}`);
+    return { page: 1, pagecount: 0, total: 0, list: [] };
+  }
+}
+
+async function detail(params, context) {
+  try {
+    const id = String(params.videoId || params.id || params.categoryId || "").trim();
+    if (!id) return { list: [] };
+    const vodId = id.includes("/") ? (id.match(/(\d+)/) || ["", id])[1] : id;
+    const html = await fetchText(`${HOST}/voddetail/${vodId}.html`);
+    const vod = buildDetailFromHtml(html, vodId);
+    return { list: [vod] };
+  } catch (e) {
+    await OmniBox.log("error", `[影视大全][detail] ${e.message}`);
+    return { list: [] };
+  }
+}
+
+async function search(params, context) {
+  try {
+    const keyword = String(params.keyword || params.wd || params.key || "").trim();
+    const page = Math.max(1, parseInt(params.page || 1, 10));
+    if (!keyword) return { page, pagecount: 0, total: 0, list: [] };
+
+    const url = `${HOST}/index.php/ajax/suggest?mid=1&wd=${encodeURIComponent(keyword)}&page=${page}`;
+    const text = await fetchText(url);
+    let data = {};
+    try {
+      data = JSON.parse(text || "{}");
+    } catch (_) {
+      data = {};
+    }
+
+    const list = [];
+    for (const item of data.list || []) {
+      const pic = absUrl(item.pic || "");
+      list.push({
+        vod_id: String(item.id || ""),
+        vod_name: String(item.name || ""),
+        vod_pic: pic,
+        vod_remarks: "",
+        vod_content: "",
+      });
+    }
+    return {
+      page,
+      pagecount: Number(data.pagecount || 1),
+      total: Number(data.total || list.length),
+      list,
+    };
+  } catch (e) {
+    await OmniBox.log("error", `[影视大全][search] ${e.message}`);
+    return { page: 1, pagecount: 0, total: 0, list: [] };
+  }
+}
+
+async function play(params, context) {
+  try {
+    const input = String(params.playId || params.url || params.input || "").trim();
+    await OmniBox.log("info", `[影视大全][play] input=${input}`);
+    if (!input) return { parse: 0, jx: 0, url: "", header: {} };
+
+    const playUrl = input.startsWith("http") ? input : absUrl(input);
+    await OmniBox.log("info", `[影视大全][play] playUrl=${playUrl}`);
+    const html = await fetchText(playUrl, { referer: `${HOST}/` });
+    await OmniBox.log("info", `[影视大全][play] htmlLen=${html.length}`);
+
+    // 1) 直接解析 player_aaaa JSON
+    let videoUrl = "";
+    let playerRaw = "";
+    const m = html.match(/var\s+player_aaaa\s*=\s*(\{[\s\S]*?\})\s*<\/script>/i)
+      || html.match(/var\s+player_aaaa\s*=\s*(\{[\s\S]*?\})\s*;/i)
+      || html.match(/player_aaaa\s*=\s*(\{[\s\S]*?\})\s*<\/script>/i)
+      || html.match(/player_aaaa\s*=\s*(\{[\s\S]*?\})\s*;/i);
+
+    if (m) {
+      playerRaw = m[1] || "";
+      await OmniBox.log("info", `[影视大全][play] player_aaaa matched len=${playerRaw.length}`);
+      try {
+        const data = JSON.parse(playerRaw);
+        videoUrl = String(data.url || "").trim();
+        await OmniBox.log("info", `[影视大全][play] player_url=${videoUrl}`);
+      } catch (err) {
+        await OmniBox.log("error", `[影视大全][play] player json parse fail: ${err.message}`);
+        videoUrl = "";
+      }
+    } else {
+      await OmniBox.log("info", `[影视大全][play] player_aaaa not matched`);
+    }
+
+    // 2) 兜底：页面里直接找 m3u8/mp4
+    if (!videoUrl) {
+      const m2 = html.match(/https?:\/\/[^\"'\s>]+\.(?:m3u8|mp4)(?:\?[^\"'\s>]*)?/i);
+      if (m2) {
+        videoUrl = m2[0];
+        await OmniBox.log("info", `[影视大全][play] fallback_url=${videoUrl}`);
+      } else {
+        await OmniBox.log("info", `[影视大全][play] fallback_url=none`);
+      }
+    }
+
+    if (!videoUrl) {
+      return { parse: 0, jx: 0, url: "", header: {} };
+    }
+
+    return {
+      parse: 0,
+      jx: 0,
+      url: videoUrl,
+      header: {
+        "User-Agent": UA,
+        Referer: `${HOST}/`,
+      },
+    };
+  } catch (e) {
+    await OmniBox.log("error", `[影视大全][play] ${e.message}`);
+    return { parse: 0, jx: 0, url: "", header: {} };
+  }
+}
+
+});
+
+_load(8, "枝枝影视", function (module, exports, require) {
+// @name 枝枝影视
+// @description 页面解析：https://zzoc.cc，支持CF处理、首页、筛选分类、搜索、详情、多线路播放和嗅探兜底；依赖 axios
+// @version 1.1.1
+// @downloadURL https://gh-proxy.org/https://github.com/Silent1566/OmniBox-Spider/raw/refs/heads/main/影视/采集/枝枝影视.js
+
+const OmniBox = require("omnibox_sdk");
+const runner = require("spider_runner");
+const axios = require("axios");
+// ==================== CF 盾绕过配置 ====================
+// 项目地址：https://github.com/FlareSolverr/FlareSolverr
+// 优先读取站点专用变量，其次回退通用 FLARESOLVERR_URL；设置 ZHIZHI_CF_AUTO=0 可关闭自动处理。
+const ZHIZHI_CF_COOKIE = process.env.ZHIZHI_CF_COOKIE || process.env.ZHIZHI_COOKIE || "";
+const ZHIZHI_CF_AUTO = process.env.ZHIZHI_CF_AUTO !== "0";
+const ZHIZHI_CF_CACHE_KEY = process.env.ZHIZHI_CF_CACHE_KEY || "zhizhi:cf_clearance";
+const ZHIZHI_CF_MAX_AGE_SECONDS = parseInt(process.env.ZHIZHI_CF_MAX_AGE_SECONDS || "21600", 10) || 21600;
+const ZHIZHI_CF_TIMEOUT_MS = parseInt(process.env.ZHIZHI_CF_TIMEOUT_MS || "45000", 10) || 45000;
+const ZHIZHI_FLARESOLVERR_URL = process.env.ZHIZHI_FLARESOLVERR_URL || process.env.FLARESOLVERR_URL || "http://192.168.50.50:8191/v1";
+const ZHIZHI_FLARESOLVERR_SESSION = process.env.ZHIZHI_FLARESOLVERR_SESSION || "";
+const ZHIZHI_FLARESOLVERR_TIMEOUT_MS = parseInt(process.env.ZHIZHI_FLARESOLVERR_TIMEOUT_MS || String(ZHIZHI_CF_TIMEOUT_MS), 10) || ZHIZHI_CF_TIMEOUT_MS;
+const ZHIZHI_CHROMIUM_BIN = process.env.ZHIZHI_CHROMIUM_BIN || "";
+const ZHIZHI_BROWSER_DEBUGGING = process.env.ZHIZHI_BROWSER_DEBUGGING === "1";
+let ZHIZHI_BROWSER_UA = text(process.env.ZHIZHI_BROWSER_UA || "");
+const { promisify } = require("util");
+const execFileAsync = promisify(require("child_process").execFile);
+
+const HOST = String(process.env.ZHIZHI_HOST || "https://zzoc.cc").replace(/\/+$/, "");
+const UA = "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36";
+const HEADERS = {
+  "User-Agent": UA,
+  Referer: `${HOST}/`,
+  Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+  "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+  "Sec-Fetch-Dest": "document",
+  "Sec-Fetch-Mode": "navigate",
+  "Sec-Fetch-Site": "same-origin",
+  "Upgrade-Insecure-Requests": "1",
+};
+const CLASS_LIST = [
+  { type_id: "1", type_name: "电影" },
+  { type_id: "2", type_name: "电视剧" },
+  { type_id: "3", type_name: "综艺" },
+  { type_id: "4", type_name: "动漫" },
+];
+const FILTER_VALUES = [
+  {
+    key: "area",
+    name: "地区",
+    value: ["", "大陆", "香港", "台湾", "美国", "日本", "韩国"]
+      .map((value) => ({ name: value || "全部", value })),
+  },
+  {
+    key: "year",
+    name: "年份",
+    value: ["", "2026", "2025", "2024", "2023", "2022", "2021", "2020"]
+      .map((value) => ({ name: value || "全部", value })),
+  },
+];
+const FILTERS = Object.fromEntries(CLASS_LIST.map((item) => [item.type_id, FILTER_VALUES]));
+
+module.exports = { home, category, search, detail, play };
+runner.run(module.exports);
+
+function getBodyText(response) {
+  const body = response && typeof response === "object"
+    ? ("body" in response ? response.body : ("data" in response ? response.data : response))
+    : response;
+  if (Buffer.isBuffer(body) || body instanceof Uint8Array) return body.toString();
+  return String(body || "");
+}
+
+function cookiesFromSetCookie(values) {
+  return (Array.isArray(values) ? values : [values])
+    .map((item) => String(item || "").split(";")[0])
+    .filter(Boolean);
+}
+
+function mergeCookies(current, incoming) {
+  const map = new Map();
+  const append = (value) => {
+    String(value || "").split(/;\s*/).forEach((pair) => {
+      const index = pair.indexOf("=");
+      if (index <= 0) return;
+      map.set(pair.slice(0, index).trim(), pair.slice(index + 1).trim());
+    });
+  };
+  append(current);
+  append(incoming);
+  return [...map.entries()].filter(([, value]) => value).map(([key, value]) => `${key}=${value}`).join("; ");
+}
+
+function text(value) {
+  return String(value ?? "").trim();
+}
+
+function buildCookieHeader(cookie = "") {
+  const value = text(cookie);
+  return value ? { Cookie: value } : {};
+}
+
+function cookiesArrayToString(cookies = []) {
+  return (Array.isArray(cookies) ? cookies : [])
+    .map((item) => ({ name: text(item?.name || ""), value: text(item?.value || "") }))
+    .filter((item) => item.name && item.value)
+    .map((item) => `${item.name}=${item.value}`)
+    .join("; ");
+}
+
+async function getCachedCfCookie() {
+  if (text(ZHIZHI_CF_COOKIE)) return text(ZHIZHI_CF_COOKIE);
+  try {
+    return text((await OmniBox.getCache(ZHIZHI_CF_CACHE_KEY)) || "");
+  } catch (error) {
+    OmniBox.log("warn", `[cf] 读取缓存失败: ${error.message}`);
+    return "";
+  }
+}
+
+async function setCachedCfCookie(cookie) {
+  const value = text(cookie);
+  if (!value || text(ZHIZHI_CF_COOKIE)) return;
+  try {
+    await OmniBox.setCache(ZHIZHI_CF_CACHE_KEY, value, ZHIZHI_CF_MAX_AGE_SECONDS);
+  } catch (error) {
+    OmniBox.log("warn", `[cf] 写入缓存失败: ${error.message}`);
+  }
+}
+
+async function requestWithFlareSolverr(targetUrl) {
+  const endpoint = text(ZHIZHI_FLARESOLVERR_URL);
+  if (!endpoint) throw new Error("未配置 FlareSolverr 地址");
+  const payload = {
+    cmd: "request.get",
+    url: targetUrl,
+    maxTimeout: ZHIZHI_FLARESOLVERR_TIMEOUT_MS,
+  };
+  if (text(ZHIZHI_FLARESOLVERR_SESSION)) payload.session = text(ZHIZHI_FLARESOLVERR_SESSION);
+  const res = await axios.post(endpoint, payload, {
+    timeout: ZHIZHI_FLARESOLVERR_TIMEOUT_MS + 5000,
+    headers: { "Content-Type": "application/json", "User-Agent": UA },
+    validateStatus: () => true,
+  });
+  if (res.status !== 200 || !res.data || res.data.status !== "ok") {
+    throw new Error(`FlareSolverr HTTP ${res.status}${res.data?.message ? `: ${res.data.message}` : ""}`);
+  }
+  const solution = res.data.solution || {};
+  const cookies = Array.isArray(solution.cookies) ? solution.cookies : [];
+  return {
+    cookie: cookiesArrayToString(cookies),
+    html: String(solution.response || ""),
+    statusCode: Number(solution.status || 200),
+    headers: solution.headers || {},
+    userAgent: text(solution.userAgent || ""),
+  };
+}
+
+async function fetchCfClearanceWithFlareSolverr(targetUrl = `${HOST}/`) {
+  const solved = await requestWithFlareSolverr(targetUrl);
+  if (!/cf_clearance=/.test(solved.cookie)) {
+    throw new Error("FlareSolverr 未返回 cf_clearance");
+  }
+  return solved.cookie;
+}
+
+async function fetchCfClearanceWithBrowser(targetUrl = `${HOST}/`) {
+  const script = String.raw`
+const { execFile } = require("child_process");
+const { promisify } = require("util");
+const http = require("http");
+const fs = require("fs");
+const execFileAsync = promisify(execFile);
+const BASE_URL = process.env.ZHIZHI_HOST;
+const USER_AGENT = process.env.ZHIZHI_BROWSER_USER_AGENT;
+const timeoutMs = Number(process.env.ZHIZHI_CF_TIMEOUT_MS || 45000);
+
+function delay(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
+function getJson(url) {
+  return new Promise((resolve, reject) => {
+    http.get(url, (res) => {
+      let data = "";
+      res.on("data", (chunk) => { data += chunk; });
+      res.on("end", () => {
+        try { resolve(JSON.parse(data)); } catch (error) { reject(error); }
+      });
+    }).on("error", reject);
+  });
+}
+
+async function waitForDebugger(port, deadline) {
+  while (Date.now() < deadline) {
+    try {
+      const info = await getJson("http://127.0.0.1:" + port + "/json/version");
+      if (info && info.webSocketDebuggerUrl) return info;
+    } catch (_) {}
+    await delay(500);
+  }
+  throw new Error("等待 Chromium 调试端口超时");
+}
+
+async function waitForCfCookie(wsUrl, baseUrl, deadline) {
+  const ws = new WebSocket(wsUrl);
+  let seq = 0;
+  const pending = new Map();
+  ws.onmessage = (event) => {
+    const msg = JSON.parse(event.data);
+    if (msg.id && pending.has(msg.id)) {
+      pending.get(msg.id)(msg);
+      pending.delete(msg.id);
+    }
+  };
+  await new Promise((resolve, reject) => {
+    ws.onopen = resolve;
+    ws.onerror = reject;
+  });
+  const send = (method, params = {}) => new Promise((resolve) => {
+    const id = ++seq;
+    pending.set(id, resolve);
+    ws.send(JSON.stringify({ id, method, params }));
+  });
+  const host = new URL(baseUrl).hostname;
+  try {
+    while (Date.now() < deadline) {
+      const cookies = (await send("Storage.getCookies", {})).result?.cookies || [];
+      const hit = cookies.find((item) => item.name === "cf_clearance" && String(item.domain || "").includes(host));
+      if (hit && hit.value) return "cf_clearance=" + hit.value;
+      await delay(1200);
+    }
+    throw new Error("未在时限内获取到 cf_clearance");
+  } finally {
+    ws.close();
+  }
+}
+
+(async () => {
+  const port = 9400 + Math.floor(Math.random() * 200);
+  const profile = (await execFileAsync("mktemp", ["-d", "/tmp/zhizhi-cf-XXXXXX"])).stdout.trim();
+  const candidates = process.env.ZHIZHI_CHROMIUM_BIN
+    ? [process.env.ZHIZHI_CHROMIUM_BIN]
+    : ["/snap/bin/chromium", "/usr/bin/chromium-browser", "/usr/bin/chromium"];
+  const bin = candidates.find((item) => item && fs.existsSync(item));
+  if (!bin) throw new Error("未找到 Chromium，可设置 ZHIZHI_CHROMIUM_BIN");
+  const args = [
+    "--headless=new",
+    "--disable-gpu",
+    "--no-sandbox",
+    "--disable-dev-shm-usage",
+    "--user-data-dir=" + profile,
+    "--remote-debugging-port=" + port,
+    "--user-agent=" + USER_AGENT,
+    BASE_URL + "/"
+  ];
+  if (process.env.ZHIZHI_BROWSER_DEBUGGING === "1") args.push("--remote-allow-origins=*");
+  const child = execFile(bin, args, { stdio: "ignore" });
+  try {
+    const deadline = Date.now() + timeoutMs;
+    const version = await waitForDebugger(port, deadline);
+    process.stdout.write(await waitForCfCookie(version.webSocketDebuggerUrl, BASE_URL, deadline));
+  } finally {
+    try { child.kill("SIGKILL"); } catch (_) {}
+  }
+})().catch((error) => {
+  console.error(error && error.message ? error.message : String(error));
+  process.exit(1);
+});`;
+
+  const { stdout, stderr } = await execFileAsync(process.execPath, ["-e", script], {
+    timeout: ZHIZHI_CF_TIMEOUT_MS + 5000,
+    env: {
+      ...process.env,
+      ZHIZHI_HOST: HOST,
+      ZHIZHI_BROWSER_USER_AGENT: ZHIZHI_BROWSER_UA || UA,
+      ZHIZHI_CF_TIMEOUT_MS: String(ZHIZHI_CF_TIMEOUT_MS),
+      ZHIZHI_CHROMIUM_BIN: ZHIZHI_CHROMIUM_BIN,
+      ZHIZHI_BROWSER_DEBUGGING: ZHIZHI_BROWSER_DEBUGGING ? "1" : "0",
+    },
+    maxBuffer: 1024 * 1024,
+  });
+  const cookie = text(stdout);
+  if (!/^cf_clearance=/.test(cookie)) {
+    throw new Error(text(stderr) || "未获取到 cf_clearance");
+  }
+  return cookie;
+}
+
+async function ensureCfCookie(forceRefresh = false, targetUrl = `${HOST}/`) {
+  if (text(ZHIZHI_CF_COOKIE)) return text(ZHIZHI_CF_COOKIE);
+  if (!forceRefresh) {
+    const cached = await getCachedCfCookie();
+    if (cached) return cached;
+  }
+  if (!ZHIZHI_CF_AUTO) return "";
+  let cookie = "";
+  try {
+    OmniBox.log("info", `[cf] 开始通过 FlareSolverr 自动获取 cf_clearance`);
+    cookie = await fetchCfClearanceWithFlareSolverr(targetUrl);
+  } catch (error) {
+    OmniBox.log("warn", `[cf] FlareSolverr 获取失败，回退 headless Chromium: ${error.message}`);
+    cookie = await fetchCfClearanceWithBrowser(targetUrl);
+  }
+  if (cookie) {
+    await setCachedCfCookie(cookie);
+    OmniBox.log("info", `[cf] 已自动获取 cf_clearance，长度=${cookie.length}`);
+  }
+  return cookie;
+}
+
+function isBlockedHtml(body = "") {
+  const lower = String(body || "").toLowerCase();
+  return lower.includes("just a moment")
+    || lower.includes("cf-browser-verification")
+    || lower.includes("cf_chl_opt")
+    || lower.includes("enable javascript and cookies to continue")
+    || (lower.includes("captcha") && !lower.includes('name="cf-turnstile-response"'));
+}
+
+async function requestText(url, options = {}) {
+  const referer = options.referer || options.headers?.Referer || `${HOST}/`;
+  const cookie = await getCachedCfCookie();
+  const headers = {
+    ...HEADERS,
+    ...(options.headers || {}),
+    Referer: referer,
+    ...buildCookieHeader(cookie),
+  };
+  const response = await OmniBox.request(url, {
+    method: options.method || "GET",
+    headers,
+    timeout: options.timeout || 30000,
+    body: options.body,
+  });
+  const statusCode = Number(response?.statusCode || 200);
+  const body = getBodyText(response);
+  if (statusCode >= 200 && statusCode < 400 && body && !isBlockedHtml(body)) return body;
+  if (!ZHIZHI_CF_AUTO) throw new Error(`HTTP ${statusCode || "unknown"} @ ${url}`);
+
+  OmniBox.log("warn", `[cf] ${url} 被CF盾拦截，尝试自动处理`);
+  const solved = await requestWithFlareSolverr(url).catch(() => null);
+  let solvedCookie = solved?.cookie || "";
+  if (!solvedCookie && solved?.statusCode >= 200 && solved?.statusCode < 400 && solved?.html && !isBlockedHtml(solved.html)) {
+    solvedCookie = mergeCookies(solvedCookie, cookiesFromSetCookie(solved.headers?.["set-cookie"]));
+  }
+  let solvedHtml = solved?.html || "";
+  if ((!solvedHtml || isBlockedHtml(solvedHtml)) && ZHIZHI_FLARESOLVERR_URL) {
+    OmniBox.log("warn", `[cf] FlareSolverr 结果无效，尝试刷新 cf_clearance`);
+    const refreshed = await ensureCfCookie(true, url).catch(() => "");
+    solvedCookie = refreshed;
+    solvedHtml = "";
+  }
+  if (!solvedHtml && ZHIZHI_FLARESOLVERR_URL) {
+    const retry = await requestWithFlareSolverr(url).catch(() => null);
+    if (retry?.html && !isBlockedHtml(retry.html)) {
+      solvedCookie = retry.cookie || solvedCookie;
+      solvedHtml = retry.html;
+    }
+  }
+  if (!solvedHtml && !ZHIZHI_FLARESOLVERR_URL) {
+    const refreshed = await ensureCfCookie(true, url).catch(() => "");
+    if (refreshed) {
+      const retryResponse = await OmniBox.request(url, {
+        method: options.method || "GET",
+        headers: { ...headers, ...buildCookieHeader(refreshed) },
+        timeout: options.timeout || 30000,
+        body: options.body,
+      });
+      const retryStatus = Number(retryResponse?.statusCode || 200);
+      const retryBody = getBodyText(retryResponse);
+      if (retryStatus >= 200 && retryStatus < 400 && retryBody && !isBlockedHtml(retryBody)) {
+        solvedCookie = refreshed;
+        solvedHtml = retryBody;
+      }
+    }
+  }
+  if (solvedCookie) {
+    await setCachedCfCookie(solvedCookie);
+    const solvedUa = text(solved?.userAgent || "");
+    if (solvedUa && !text(ZHIZHI_BROWSER_UA)) ZHIZHI_BROWSER_UA = solvedUa;
+  }
+  if (solvedHtml && !isBlockedHtml(solvedHtml)) return solvedHtml;
+  throw new Error(`Cloudflare challenge unresolved @ ${url}`);
+}
+
+function decodeHtml(text) {
+  return String(text || "")
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, code) => String.fromCharCode(parseInt(code, 16)))
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">");
+}
+
+function cleanText(text) {
+  return decodeHtml(
+    String(text || "")
+      .replace(/<script\b[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style\b[\s\S]*?<\/style>/gi, " ")
+      .replace(/<br\s*\/?\s*>/gi, " ")
+      .replace(/<[^>]+>/g, " "),
+  ).replace(/\s+/g, " ").trim();
+}
+
+function absUrl(url, base = HOST) {
+  let value = decodeHtml(String(url || "").trim()).replace(/^['"]|['"]$/g, "").replace(/\\\//g, "/");
+  if (!value || /^data:/i.test(value)) return "";
+  if (value.startsWith("//")) value = `https:${value}`;
+  try {
+    return new URL(value, base).toString();
+  } catch (_) {
+    return value;
+  }
+}
+
+function getAttribute(attrs, name) {
+  const match = String(attrs || "").match(new RegExp(`\\b${name}\\s*=\\s*(["'])([\\s\\S]*?)\\1`, "i"));
+  return match ? decodeHtml(match[2]).trim() : "";
+}
+
+function parseCards(html) {
+  const parts = String(html || "").split(/<div\s+class=["']myui-vodbox-content["']>/i);
+  const videos = [];
+  const seen = new Set();
+
+  for (const part of parts.slice(1)) {
+    const idMatch = part.match(/href=["']\/voddetail\/(\d+)\.html["']/i);
+    if (!idMatch || seen.has(idMatch[1])) continue;
+    const videoId = idMatch[1];
+    const block = part.slice(0, 5000);
+    let name = cleanText((block.match(/\balt=["']([^"']+)["']/i) || [])[1] || "");
+    if (!name) name = cleanText((block.match(/<div[^>]*class=["']title["'][^>]*>([\s\S]*?)<\/div>/i) || [])[1] || "");
+    if (!name) continue;
+
+    let pic = String((block.match(/<img\b[^>]*src=["']([^"']+)["']/i) || [])[1] || "");
+    if (/load\.gif/i.test(pic)) {
+      pic = String((block.match(/<!--\s*<img\b[^>]*src=["']([^"']+)["']/i) || [])[1] || pic);
+    }
+    const remarkMatch = block.match(/<div[^>]*class=["'][^"']*tag[^"']*["'][^>]*>([\s\S]*?)<\/div>/i)
+      || block.match(/<div[^>]*class=["']score["'][^>]*>([\s\S]*?)<\/div>/i);
+
+    seen.add(videoId);
+    videos.push({
+      vod_id: videoId,
+      vod_name: name,
+      vod_pic: absUrl(pic),
+      vod_remarks: cleanText(remarkMatch ? remarkMatch[1] : ""),
+    });
+  }
+  return videos;
+}
+
+function parsePageCount(html, currentPage) {
+  const values = [];
+  const patterns = [
+    /\/vodshow\/\d+-[^"']*?(\d+)---\.html/gi,
+    /\/vodsearch\/[^"']*?----------(\d+)---\.html/gi,
+  ];
+  for (const pattern of patterns) {
+    let match;
+    while ((match = pattern.exec(String(html || ""))) !== null) values.push(Number(match[1]) || 0);
+  }
+  return values.length ? Math.max(...values) : (currentPage + 1);
+}
+
+function normalizeFilters(value) {
+  if (!value) return {};
+  if (typeof value === "object") return value;
+  try {
+    const parsed = JSON.parse(String(value));
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function extractMeta(html, property) {
+  const escaped = property.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = String(html || "").match(new RegExp(`<meta[^>]*property=["']${escaped}["'][^>]*content=["']([^"']*)["']`, "i"))
+    || String(html || "").match(new RegExp(`<meta[^>]*content=["']([^"']*)["'][^>]*property=["']${escaped}["']`, "i"));
+  return cleanText(match ? match[1] : "");
+}
+
+function extractField(html, label) {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = String(html || "").match(new RegExp(`${escaped}\\s*[：:]\\s*([\\s\\S]*?)(?:<\\/div>|<\\/li>)`, "i"));
+  return cleanText(match ? match[1] : "");
+}
+
+function extractNestedField(html, label) {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = String(html || "").match(
+    new RegExp(`<div[^>]*>[\\s\\S]*?<div[^>]*class=["']name["'][^>]*>\\s*${escaped}\\s*[：:]\\s*<\\/div>([\\s\\S]*?)<\\/div>`, "i"),
+  );
+  return cleanText(match ? match[1] : "");
+}
+
+function findPlaylistBlock(html, playlistId) {
+  const text = String(html || "");
+  const startMatch = text.match(new RegExp(`<div\\s+id=["']playlist${playlistId}["'][^>]*>`, "i"));
+  if (!startMatch) return "";
+  const start = startMatch.index;
+  const rest = text.slice(start + startMatch[0].length);
+  const next = rest.search(/<div\s+id=["']playlist\d+["']/i);
+  return next >= 0 ? text.slice(start, start + startMatch[0].length + next) : text.slice(start, start + 20000);
+}
+
+function parsePlaySources(html) {
+  const sources = [];
+  const tabRegex = /<li[^>]*class=["'][^"']*player_name[^"']*["'][^>]*>[\s\S]*?<a[^>]*href=["']#playlist(\d+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  let match;
+  while ((match = tabRegex.exec(String(html || ""))) !== null) {
+    const playlistId = match[1];
+    const name = cleanText(match[2]) || `线路${playlistId}`;
+    const block = findPlaylistBlock(html, playlistId);
+    const episodes = [];
+    const episodeRegex = /<a\b[^>]*href=["']([^"']*\/vodplay\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+    let episodeMatch;
+    while ((episodeMatch = episodeRegex.exec(block)) !== null) {
+      const episodeName = cleanText(episodeMatch[2]) || "播放";
+      const playId = absUrl(episodeMatch[1]);
+      if (playId) episodes.push({ name: episodeName, playId });
+    }
+    if (episodes.length) sources.push({ name, episodes });
+  }
+  return sources;
+}
+
+function decodePlayerUrl(value, encrypt) {
+  const raw = String(value || "").replace(/\\\//g, "/");
+  if (!raw) return "";
+  try {
+    if (String(encrypt) === "2") return decodeURIComponent(Buffer.from(raw, "base64").toString("utf8"));
+    if (String(encrypt) === "1") {
+      const decoded = decodeURIComponent(raw);
+      if (decoded !== raw || /^https?:\/\//i.test(decoded)) return decoded;
+      if (/^[A-Za-z0-9+/=]+$/.test(raw)) return Buffer.from(raw, "base64").toString("utf8");
+    }
+  } catch (_) {}
+  return raw;
+}
+
+function isDirectMedia(url) {
+  return /\.(?:m3u8|mp4|flv|mkv|avi)(?:$|[?#])/i.test(String(url || ""));
+}
+
+function normalizeSniffUrls(result, defaultName) {
+  const urls = [];
+  const seen = new Set();
+  const append = (item) => {
+    const value = typeof item === "string" ? item : (item?.url || item?.playUrl || item?.src || "");
+    const url = String(value || "").trim();
+    if (!url || seen.has(url)) return;
+    seen.add(url);
+    urls.push({ name: String(item?.name || defaultName || "嗅探线路"), url });
+  };
+  if (Array.isArray(result?.urls)) result.urls.forEach(append);
+  if (!urls.length) append(result);
+  return urls;
+}
+
+function directPlayResult(url, referer, name = "播放", extras = {}) {
+  const header = { "User-Agent": UA, Referer: referer || `${HOST}/` };
+  return { parse: 0, jx: 0, url, urls: [{ name, url }], header, headers: header, ...extras };
+}
+
+function browserSniffResult(url, referer, name = "播放页") {
+  const header = { "User-Agent": UA, Referer: referer || `${HOST}/` };
+  return { parse: 1, jx: 1, url, urls: [{ name, url }], header, headers: header };
+}
+
+async function serverSniffOrBrowserFallback(targetUrl, referer, name = "播放") {
+  const header = { "User-Agent": UA, Referer: referer || `${HOST}/` };
+  if (typeof OmniBox.sniffVideo === "function") {
+    try {
+      const sniffed = await OmniBox.sniffVideo(targetUrl, header);
+      const urls = normalizeSniffUrls(sniffed, name);
+      if (urls.length) {
+        const playHeader = sniffed?.header || sniffed?.headers || header;
+        await OmniBox.log("info", `[枝枝影视][play] 服务端嗅探成功 urls=${urls.length}`);
+        return {
+          parse: 0,
+          jx: 0,
+          url: urls[0].url,
+          urls,
+          header: playHeader,
+          headers: playHeader,
+          danmaku: sniffed?.danmaku || [],
+        };
+      }
+      await OmniBox.log("warn", "[枝枝影视][play] 服务端嗅探无结果，转浏览器嗅探");
+    } catch (error) {
+      await OmniBox.log("warn", `[枝枝影视][play] 服务端嗅探失败，转浏览器嗅探: ${error.message}`);
+    }
+  }
+  return browserSniffResult(targetUrl, referer, name);
+}
+
+async function resolveM3u8Child(url, referer) {
+  try {
+    const text = await requestText(url, { referer, timeout: 20000 });
+    if (!text.includes("#EXTM3U") || !text.includes("#EXT-X-STREAM-INF")) return url;
+    const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    for (let index = 0; index < lines.length; index += 1) {
+      if (!lines[index].startsWith("#EXT-X-STREAM-INF")) continue;
+      const child = lines.slice(index + 1).find((line) => !line.startsWith("#"));
+      if (child) return absUrl(child, url);
+    }
+  } catch (_) {}
+  return url;
+}
+
+async function home() {
+  const results = await Promise.allSettled(CLASS_LIST.map((item) => requestText(`${HOST}/vodshow/${item.type_id}-----------.html`, { timeout: 30000 })));
+  const list = [];
+  const seen = new Set();
+  for (const result of results) {
+    if (result.status !== "fulfilled") continue;
+    for (const video of parseCards(result.value)) {
+      if (seen.has(video.vod_id)) continue;
+      seen.add(video.vod_id);
+      list.push(video);
+    }
+  }
+  if (!list.length) {
+    try {
+      for (const video of parseCards(await requestText(`${HOST}/`))) {
+        if (seen.has(video.vod_id)) continue;
+        seen.add(video.vod_id);
+        list.push(video);
+      }
+    } catch (error) {
+      await OmniBox.log("error", `[枝枝影视][home] ${error.message}`);
+    }
+  }
+  return { class: CLASS_LIST, filters: FILTERS, list: list.slice(0, 72) };
+}
+
+async function category(params) {
+  const page = Math.max(1, parseInt(params.page || 1, 10));
+  try {
+    const categoryId = String(params.categoryId || params.type_id || "1").trim() || "1";
+    const filters = normalizeFilters(params.extend || params.filters || params.ext);
+    const area = String(filters.area || "").trim();
+    const year = String(filters.year || "").trim();
+    let url;
+    if (area || year) {
+      url = `${HOST}/vodshow/${categoryId}-${encodeURIComponent(area)}-------${page}---${encodeURIComponent(year)}.html`;
+    } else {
+      url = page === 1
+        ? `${HOST}/vodshow/${categoryId}-----------.html`
+        : `${HOST}/vodshow/${categoryId}--------${page}---.html`;
+    }
+    const html = await requestText(url);
+    const list = parseCards(html);
+    return { page, pagecount: parsePageCount(html, page), limit: list.length || 20, total: 999999, list };
+  } catch (error) {
+    await OmniBox.log("error", `[枝枝影视][category] ${error.message}`);
+    return { page, pagecount: 0, limit: 0, total: 0, list: [] };
+  }
+}
+
+async function detail(params) {
+  try {
+    const input = String(params.videoId || params.id || params.categoryId || "").trim();
+    const idMatch = input.match(/\/voddetail\/(\d+)\.html/i) || input.match(/^(\d+)$/);
+    const videoId = idMatch ? idMatch[1] : "";
+    if (!videoId) return { list: [] };
+    const html = await requestText(`${HOST}/voddetail/${videoId}.html`);
+    let name = extractMeta(html, "og:title").replace(/-高清.*$/u, "").trim();
+    if (!name) name = cleanText((html.match(/<title>([\s\S]*?)-/i) || [])[1] || "");
+    let content = extractMeta(html, "og:description");
+    if (content.includes("剧情介绍：")) content = content.split("剧情介绍：", 2)[1];
+    const yearMatch = html.match(/<div[^>]*class=["']right["'][^>]*>\s*(\d{4})\s*<\/div>/i);
+    const remarkMatch = html.match(/<div[^>]*class=["'][^"']*tag[^"']*["'][^>]*>([\s\S]*?)<\/div>/i);
+
+    return {
+      list: [{
+        vod_id: videoId,
+        vod_name: name,
+        vod_pic: absUrl(extractMeta(html, "og:image")),
+        type_name: "",
+        vod_year: yearMatch ? yearMatch[1] : "",
+        vod_area: extractField(html, "地区"),
+        vod_remarks: cleanText(remarkMatch ? remarkMatch[1] : ""),
+        vod_actor: extractNestedField(html, "主演") || extractField(html, "主演"),
+        vod_director: extractNestedField(html, "导演") || extractField(html, "导演"),
+        vod_content: content || "暂无简介",
+        vod_play_sources: parsePlaySources(html),
+      }],
+    };
+  } catch (error) {
+    await OmniBox.log("error", `[枝枝影视][detail] ${error.message}`);
+    return { list: [] };
+  }
+}
+
+async function search(params) {
+  const page = Math.max(1, parseInt(params.page || 1, 10));
+  try {
+    const keyword = String(params.keyword || params.wd || params.key || "").trim();
+    if (!keyword) return { page, pagecount: 0, total: 0, list: [] };
+    const encoded = encodeURIComponent(keyword);
+    const url = page === 1
+      ? `${HOST}/vodsearch/${encoded}-------------.html`
+      : `${HOST}/vodsearch/${encoded}----------${page}---.html`;
+    const html = await requestText(url, { timeout: 60000 });
+    const list = parseCards(html);
+    return { page, pagecount: parsePageCount(html, page), limit: list.length || 20, total: 999999, list };
+  } catch (error) {
+    await OmniBox.log("error", `[枝枝影视][search] ${error.message}`);
+    return { page, pagecount: 0, limit: 0, total: 0, list: [] };
+  }
+}
+
+async function play(params) {
+  const input = String(params.playId || params.id || params.url || params.input || "").trim();
+  if (!input) return { parse: 0, jx: 0, url: "", urls: [], header: {}, headers: {} };
+  const flag = String(params.flag || "");
+  if (isDirectMedia(input)) return directPlayResult(absUrl(input), `${HOST}/`, flag || "播放");
+  const playUrl = absUrl(input);
+
+  let html = "";
+  try {
+    html = await requestText(playUrl, { referer: `${HOST}/`, timeout: 30000 });
+  } catch (error) {
+    await OmniBox.log("warn", `[枝枝影视][play] 播放页请求失败，尝试嗅探: ${error.message}`);
+    return await serverSniffOrBrowserFallback(playUrl, playUrl, flag || "枝枝播放");
+  }
+
+  let realUrl = "";
+  let jxFrom = "";
+  const playerMatch = html.match(/var\s+player_[a-zA-Z0-9_$]+\s*=\s*(\{[\s\S]*?\})\s*;?\s*<\/script>/i)
+    || html.match(/var\s+player_[a-zA-Z0-9_$]+\s*=\s*(\{[\s\S]*?\})\s*;/i);
+  if (playerMatch) {
+    try {
+      const data = JSON.parse(playerMatch[1]);
+      realUrl = decodePlayerUrl(data.url, data.encrypt);
+      jxFrom = String(data.from || "");
+    } catch (error) {
+      await OmniBox.log("warn", `[枝枝影视][play] player 数据解析失败: ${error.message}`);
+    }
+  }
+
+  let sniffTarget = playUrl;
+  if (!realUrl) {
+    const iframeMatch = html.match(/<iframe\b[^>]*src=["']([^"']+)["']/i);
+    if (iframeMatch) {
+      const iframeUrl = absUrl(iframeMatch[1], playUrl);
+      sniffTarget = iframeUrl || playUrl;
+      try {
+        const iframeHtml = await requestText(iframeUrl, { referer: playUrl, timeout: 30000 });
+        realUrl = String((iframeHtml.match(/["']url["']\s*:\s*["']([^"']+)["']/i) || [])[1] || "").replace(/\\\//g, "/");
+        if (!realUrl) {
+          realUrl = String((iframeHtml.match(/src=["']([^"']+\.(?:m3u8|mp4|flv)(?:\?[^"']*)?)["']/i) || [])[1] || "");
+        }
+      } catch (error) {
+        await OmniBox.log("warn", `[枝枝影视][play] iframe 解析失败: ${error.message}`);
+      }
+    }
+  }
+
+  if (!realUrl) {
+    const directMatch = html.match(/["'](https?:\/\/[^"']+\.(?:m3u8|mp4|flv|mkv|avi)(?:\?[^"']*)?)["']/i);
+    realUrl = directMatch ? directMatch[1].replace(/\\\//g, "/") : "";
+  }
+
+  if (isDirectMedia(realUrl)) {
+    const mediaUrl = /\.m3u8(?:$|[?#])/i.test(realUrl) ? await resolveM3u8Child(realUrl, playUrl) : realUrl;
+    return directPlayResult(mediaUrl, playUrl, flag || "播放", jxFrom ? { jxFrom } : {});
+  }
+  if (realUrl) return await serverSniffOrBrowserFallback(absUrl(realUrl, playUrl), playUrl, flag || "枝枝播放");
+  return await serverSniffOrBrowserFallback(sniffTarget, playUrl, flag || "枝枝播放");
+}
+
+});
+
+_load(9, "毒舌03", function (module, exports, require) {
+// @name 毒舌03
+// @author 梦
+// @description 影视站：https://www.dushe03.com/ ，支持首页、分类、详情、搜索与播放
+// @dependencies cheerio
+// @version 1.0.8
+// @downloadURL https://gh-proxy.org/https://github.com/Silent1566/OmniBox-Spider/raw/refs/heads/main/影视/采集/毒舌03.js
+
+const OmniBox = require("omnibox_sdk");
+const runner = require("spider_runner");
+const cheerio = require("cheerio");
+const crypto = require("crypto");
+
+const BASE_URL = (process.env.DUSHE03_HOST || "https://www.dushe03.com").replace(/\/$/, "");
+const UA = process.env.DUSHE03_UA || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36";
+const HOME_CACHE_TTL = Number(process.env.DUSHE03_HOME_CACHE_TTL || 900);
+const CATEGORY_CACHE_TTL = Number(process.env.DUSHE03_CATEGORY_CACHE_TTL || 900);
+const DETAIL_CACHE_TTL = Number(process.env.DUSHE03_DETAIL_CACHE_TTL || 1800);
+const SEARCH_CACHE_TTL = Number(process.env.DUSHE03_SEARCH_CACHE_TTL || 600);
+const PLAY_CACHE_TTL = Number(process.env.DUSHE03_PLAY_CACHE_TTL || 900);
+
+const CATEGORY_CONFIG = [
+  { id: "1", name: "电影" },
+  { id: "2", name: "剧集" },
+  { id: "3", name: "综艺" },
+  { id: "4", name: "动漫" },
+  { id: "6", name: "短剧" },
+];
+
+const CLASS_LIST = CATEGORY_CONFIG.map((item) => ({ type_id: item.id, type_name: item.name }));
+const CATEGORY_SHOW_PATH = Object.fromEntries(CATEGORY_CONFIG.map((item) => [item.id, `/show/${item.id}------.html`]));
+const STATIC_HOST = process.env.DUSHE03_STATIC_HOST || "https://vres.bavdxfg.cn";
+const PIC_HEADERS = {
+  Referer: `${BASE_URL}/`,
+  Origin: BASE_URL,
+  "User-Agent": UA,
+};
+const FILTERS = {
+  "1": [
+    { key: "type", name: "类型", init: "", value: [{ name: "全部", value: "" }, { name: "剧情", value: "剧情" }, { name: "爱情", value: "爱情" }, { name: "喜剧", value: "喜剧" }, { name: "动作", value: "动作" }, { name: "恐怖", value: "恐怖" }, { name: "科幻", value: "科幻" }, { name: "悬疑", value: "悬疑" }, { name: "惊悚", value: "惊悚" }, { name: "犯罪", value: "犯罪" }, { name: "冒险", value: "冒险" }, { name: "动画", value: "动画" }, { name: "奇幻", value: "奇幻" }, { name: "武侠", value: "武侠" }] },
+    { key: "area", name: "地区", init: "", value: [{ name: "地区", value: "" }, { name: "大陆", value: "中国大陆" }, { name: "香港", value: "中国香港" }, { name: "韩国", value: "韩国" }, { name: "美国", value: "美国" }, { name: "日本", value: "日本" }, { name: "法国", value: "法国" }, { name: "英国", value: "英国" }, { name: "德国", value: "德国" }, { name: "台湾", value: "中国台湾" }, { name: "泰国", value: "泰国" }, { name: "印度", value: "印度" }, { name: "其他", value: "其他" }] },
+    { key: "lang", name: "语言", init: "", value: [{ name: "全部", value: "" }, { name: "国语", value: "国语" }, { name: "粤语", value: "粤语" }, { name: "英语", value: "英语" }, { name: "日语", value: "日语" }, { name: "韩语", value: "韩语" }, { name: "法语", value: "法语" }, { name: "其他", value: "其他" }] },
+    { key: "year", name: "年份", init: "", value: [{ name: "全部", value: "" }, { name: "2026", value: "2026" }, { name: "2025", value: "2025" }, { name: "2024", value: "2024" }, { name: "2023", value: "2023" }, { name: "2022", value: "2022" }, { name: "2021", value: "2021" }, { name: "2020", value: "2020" }, { name: "10年代", value: "2010_2019" }, { name: "00年代", value: "2000_2009" }, { name: "90年代", value: "1990_1999" }, { name: "80年代", value: "1980_1989" }, { name: "更早", value: "0_1979" }] },
+    { key: "by", name: "排序", init: "3", value: [{ name: "综合", value: "1" }, { name: "最新", value: "2" }, { name: "最热", value: "3" }, { name: "评分", value: "4" }] },
+  ],
+  "2": [
+    { key: "type", name: "类型", init: "", value: [{ name: "全部", value: "" }, { name: "剧情", value: "剧情" }, { name: "爱情", value: "爱情" }, { name: "喜剧", value: "喜剧" }, { name: "犯罪", value: "犯罪" }, { name: "悬疑", value: "悬疑" }, { name: "古装", value: "古装" }, { name: "动作", value: "动作" }, { name: "家庭", value: "家庭" }, { name: "惊悚", value: "惊悚" }, { name: "奇幻", value: "奇幻" }, { name: "美剧", value: "美剧" }, { name: "科幻", value: "科幻" }, { name: "历史", value: "历史" }, { name: "战争", value: "战争" }, { name: "韩剧", value: "韩剧" }, { name: "武侠", value: "武侠" }, { name: "言情", value: "言情" }, { name: "恐怖", value: "恐怖" }, { name: "冒险", value: "冒险" }, { name: "都市", value: "都市" }, { name: "职场", value: "职场" }] },
+    { key: "area", name: "地区", init: "", value: [{ name: "地区", value: "" }, { name: "大陆", value: "中国大陆" }, { name: "香港", value: "中国香港" }, { name: "韩国", value: "韩国" }, { name: "美国", value: "美国" }, { name: "日本", value: "日本" }, { name: "法国", value: "法国" }, { name: "英国", value: "英国" }, { name: "德国", value: "德国" }, { name: "台湾", value: "中国台湾" }, { name: "泰国", value: "泰国" }, { name: "印度", value: "印度" }, { name: "其他", value: "其他" }] },
+    { key: "lang", name: "语言", init: "", value: [{ name: "全部", value: "" }, { name: "国语", value: "国语" }, { name: "粤语", value: "粤语" }, { name: "英语", value: "英语" }, { name: "日语", value: "日语" }, { name: "韩语", value: "韩语" }, { name: "法语", value: "法语" }, { name: "其他", value: "其他" }] },
+    { key: "year", name: "年份", init: "", value: [{ name: "全部", value: "" }, { name: "2026", value: "2026" }, { name: "2025", value: "2025" }, { name: "2024", value: "2024" }, { name: "2023", value: "2023" }, { name: "2022", value: "2022" }, { name: "2021", value: "2021" }, { name: "2020", value: "2020" }, { name: "10年代", value: "2010_2019" }, { name: "00年代", value: "2000_2009" }, { name: "90年代", value: "1990_1999" }, { name: "80年代", value: "1980_1989" }, { name: "更早", value: "0_1979" }] },
+    { key: "by", name: "排序", init: "3", value: [{ name: "综合", value: "1" }, { name: "最新", value: "2" }, { name: "最热", value: "3" }, { name: "评分", value: "4" }] },
+  ],
+  "3": [
+    { key: "type", name: "类型", init: "", value: [{ name: "全部", value: "" }, { name: "真人秀", value: "真人秀" }, { name: "脱口秀", value: "脱口秀" }, { name: "选秀", value: "选秀" }, { name: "美食", value: "美食" }, { name: "旅游", value: "旅游" }, { name: "晚会", value: "晚会" }, { name: "音乐", value: "音乐" }, { name: "纪实", value: "纪实" }] },
+    { key: "area", name: "地区", init: "", value: [{ name: "地区", value: "" }, { name: "大陆", value: "中国大陆" }, { name: "香港", value: "中国香港" }, { name: "韩国", value: "韩国" }, { name: "美国", value: "美国" }, { name: "日本", value: "日本" }, { name: "台湾", value: "中国台湾" }, { name: "泰国", value: "泰国" }, { name: "其他", value: "其他" }] },
+    { key: "lang", name: "语言", init: "", value: [{ name: "全部", value: "" }, { name: "国语", value: "国语" }, { name: "粤语", value: "粤语" }, { name: "英语", value: "英语" }, { name: "日语", value: "日语" }, { name: "韩语", value: "韩语" }, { name: "其他", value: "其他" }] },
+    { key: "year", name: "年份", init: "", value: [{ name: "全部", value: "" }, { name: "2026", value: "2026" }, { name: "2025", value: "2025" }, { name: "2024", value: "2024" }, { name: "2023", value: "2023" }, { name: "2022", value: "2022" }, { name: "2021", value: "2021" }, { name: "2020", value: "2020" }, { name: "10年代", value: "2010_2019" }, { name: "00年代", value: "2000_2009" }, { name: "90年代", value: "1990_1999" }, { name: "80年代", value: "1980_1989" }, { name: "更早", value: "0_1979" }] },
+    { key: "by", name: "排序", init: "3", value: [{ name: "综合", value: "1" }, { name: "最新", value: "2" }, { name: "最热", value: "3" }, { name: "评分", value: "4" }] },
+  ],
+  "4": [
+    { key: "type", name: "类型", init: "", value: [{ name: "全部", value: "" }, { name: "热血", value: "热血" }, { name: "搞笑", value: "搞笑" }, { name: "冒险", value: "冒险" }, { name: "奇幻", value: "奇幻" }, { name: "恋爱", value: "恋爱" }, { name: "校园", value: "校园" }, { name: "科幻", value: "科幻" }, { name: "战斗", value: "战斗" }] },
+    { key: "area", name: "地区", init: "", value: [{ name: "地区", value: "" }, { name: "大陆", value: "中国大陆" }, { name: "日本", value: "日本" }, { name: "美国", value: "美国" }, { name: "韩国", value: "韩国" }, { name: "其他", value: "其他" }] },
+    { key: "lang", name: "语言", init: "", value: [{ name: "全部", value: "" }, { name: "国语", value: "国语" }, { name: "日语", value: "日语" }, { name: "英语", value: "英语" }, { name: "其他", value: "其他" }] },
+    { key: "year", name: "年份", init: "", value: [{ name: "全部", value: "" }, { name: "2026", value: "2026" }, { name: "2025", value: "2025" }, { name: "2024", value: "2024" }, { name: "2023", value: "2023" }, { name: "2022", value: "2022" }, { name: "2021", value: "2021" }, { name: "2020", value: "2020" }, { name: "10年代", value: "2010_2019" }, { name: "00年代", value: "2000_2009" }, { name: "90年代", value: "1990_1999" }, { name: "80年代", value: "1980_1989" }, { name: "更早", value: "0_1979" }] },
+    { key: "by", name: "排序", init: "3", value: [{ name: "综合", value: "1" }, { name: "最新", value: "2" }, { name: "最热", value: "3" }, { name: "评分", value: "4" }] },
+  ],
+  "6": [
+    { key: "type", name: "类型", init: "", value: [{ name: "全部", value: "" }, { name: "爱情", value: "爱情" }, { name: "都市", value: "都市" }, { name: "逆袭", value: "逆袭" }, { name: "悬疑", value: "悬疑" }, { name: "古装", value: "古装" }, { name: "穿越", value: "穿越" }, { name: "甜宠", value: "甜宠" }] },
+    { key: "area", name: "地区", init: "", value: [{ name: "地区", value: "" }, { name: "大陆", value: "中国大陆" }, { name: "台湾", value: "中国台湾" }, { name: "香港", value: "中国香港" }, { name: "其他", value: "其他" }] },
+    { key: "lang", name: "语言", init: "", value: [{ name: "全部", value: "" }, { name: "国语", value: "国语" }, { name: "粤语", value: "粤语" }, { name: "其他", value: "其他" }] },
+    { key: "year", name: "年份", init: "", value: [{ name: "全部", value: "" }, { name: "2026", value: "2026" }, { name: "2025", value: "2025" }, { name: "2024", value: "2024" }, { name: "2023", value: "2023" }, { name: "2022", value: "2022" }, { name: "2021", value: "2021" }, { name: "2020", value: "2020" }, { name: "10年代", value: "2010_2019" }, { name: "00年代", value: "2000_2009" }, { name: "90年代", value: "1990_1999" }, { name: "80年代", value: "1980_1989" }, { name: "更早", value: "0_1979" }] },
+    { key: "by", name: "排序", init: "3", value: [{ name: "综合", value: "1" }, { name: "最新", value: "2" }, { name: "最热", value: "3" }, { name: "评分", value: "4" }] },
+  ],
+};
+
+let cdndefendCookie = "";
+
+module.exports = { home, category, detail, search, play };
+runner.run(module.exports);
+
+function absUrl(raw = "") {
+  const value = String(raw || "").trim();
+  if (!value) return "";
+  if (/^https?:\/\//i.test(value)) return value;
+  if (value.startsWith("//")) return `https:${value}`;
+  if (value.startsWith("/vod1/")) {
+    return new URL(value, `${STATIC_HOST}/`).toString();
+  }
+  try {
+    return new URL(value, `${BASE_URL}/`).toString();
+  } catch (_) {
+    return value;
+  }
+}
+
+function cleanText(value) {
+  return String(value || "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&#160;/gi, " ")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\r/g, "")
+    .replace(/[ \t\f\v]+/g, " ")
+    .replace(/\n\s*\n+/g, "\n")
+    .trim();
+}
+
+function decodeHtmlEntities(value) {
+  return String(value || "")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">");
+}
+
+function encodeSegment(value) {
+  return encodeURIComponent(String(value || "").trim());
+}
+
+function summarizeImageCandidates($, root, selectors = []) {
+  const scope = root && typeof root.find === "function" ? root : $(root);
+  const summary = [];
+  for (const selector of selectors) {
+    const nodes = scope.find(selector).toArray().slice(0, 3);
+    for (const el of nodes) {
+      const wrapped = $(el);
+      summary.push({
+        selector,
+        self: {
+          dataOriginal: String(wrapped.attr("data-original") || ""),
+          dataSrc: String(wrapped.attr("data-src") || ""),
+          src: String(wrapped.attr("src") || ""),
+        },
+        parentA: {
+          dataOriginal: String(wrapped.parent("a").attr("data-original") || ""),
+          dataSrc: String(wrapped.parent("a").attr("data-src") || ""),
+          src: String(wrapped.parent("a").attr("src") || ""),
+        },
+        closestA: {
+          dataOriginal: String(wrapped.closest("a").attr("data-original") || ""),
+          dataSrc: String(wrapped.closest("a").attr("data-src") || ""),
+          src: String(wrapped.closest("a").attr("src") || ""),
+        },
+      });
+      if (summary.length >= 4) return summary;
+    }
+  }
+  return summary;
+}
+
+function pickImage($, root, selectors = []) {
+  const scope = root && typeof root.find === "function" ? root : $(root);
+  for (const selector of selectors) {
+    const nodes = scope.find(selector).toArray();
+    for (const el of nodes) {
+      const wrapped = $(el);
+      const candidateGroups = [
+        [wrapped.attr("data-original"), wrapped.attr("data-src"), wrapped.attr("src"), wrapped.attr("data-url"), wrapped.attr("data-lazy-src"), wrapped.attr("original")],
+        [wrapped.parent("a").attr("data-original"), wrapped.parent("a").attr("data-src"), wrapped.parent("a").attr("src")],
+        [wrapped.closest("a").attr("data-original"), wrapped.closest("a").attr("data-src"), wrapped.closest("a").attr("src")],
+      ];
+      for (const candidates of candidateGroups) {
+        for (const raw of candidates.map((item) => String(item || "").trim()).filter(Boolean)) {
+          if (/logo_placeholder|noneCoverImg|blank\.gif|base64|avatar\.png|empty-box/i.test(raw)) continue;
+          return raw;
+        }
+      }
+    }
+  }
+  return "";
+}
+
+function dedupeVodList(list) {
+  const out = [];
+  const seen = new Set();
+  for (const item of Array.isArray(list) ? list : []) {
+    const key = String(item?.vod_id || item?.vod_name || "");
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+  }
+  return out;
+}
+
+function dedupeEpisodes(episodes) {
+  const out = [];
+  const seen = new Set();
+  for (const ep of Array.isArray(episodes) ? episodes : []) {
+    const name = cleanText(ep?.name || "");
+    const playId = String(ep?.playId || "").trim();
+    const key = `${name}|${playId}`;
+    if (!name || !playId || seen.has(key)) continue;
+    seen.add(key);
+    out.push({ ...ep, name, playId });
+  }
+  return out;
+}
+
+function encodeSearchToken(keyword) {
+  return "";
+}
+
+function extractSearchToken(html) {
+  const text = String(html || "");
+  const match = text.match(/<input[^>]+name=["']t["'][^>]*value=["']([^"']+)["']/i);
+  return decodeHtmlEntities(match?.[1] || "").trim();
+}
+
+function getCdndefendCookie(challengeHtml = "") {
+  if (cdndefendCookie) return cdndefendCookie;
+  const text = String(challengeHtml || "");
+  const prefix = (
+    process.env.DUSHE03_CDNDEFEND_PREFIX
+    || (text.match(/\['([A-F0-9]{40})','cdndefend_js_cookie='/i)?.[1])
+    || (text.match(/const\s+[a-zA-Z0-9_$]+\s*=\s*\['([A-F0-9]{40})','cdndefend_js_cookie='/i)?.[1])
+    || ""
+  ).trim();
+  if (!prefix) return "";
+  const idx = parseInt(prefix[0], 16);
+  let counter = 0;
+  while (counter < 5_000_000) {
+    const candidate = `${prefix}${counter}`;
+    const digest = crypto.createHash("sha1").update(candidate).digest();
+    if (digest[idx] === 0xb0 && digest[idx + 1] === 0x0b) {
+      cdndefendCookie = candidate;
+      return candidate;
+    }
+    counter += 1;
+  }
+  return "";
+}
+
+async function requestText(url, options = {}) {
+  const method = options.method || "GET";
+  const retry850 = options.retry850 !== false;
+  await OmniBox.log("info", `[毒舌03][request] ${method} ${url}`);
+  const headers = {
+    "User-Agent": UA,
+    Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+    "Cache-Control": "no-cache",
+    Pragma: "no-cache",
+    Referer: options.referer || `${BASE_URL}/`,
+    "Upgrade-Insecure-Requests": "1",
+    ...(options.headers || {}),
+  };
+  const res = await OmniBox.request(url, {
+    method,
+    headers,
+    body: options.body,
+    timeout: options.timeout || 20000,
+  });
+  const statusCode = Number(res?.statusCode || 0);
+  const body = res?.body;
+  const text = typeof body === "string" ? body : Buffer.isBuffer(body) ? body.toString() : String(body || "");
+
+  if (statusCode === 850 && retry850) {
+    const cookie = getCdndefendCookie(text);
+    if (cookie) {
+      const retryHeaders = {
+        ...headers,
+        Cookie: [headers.Cookie, `cdndefend_js_cookie=${cookie}`].filter(Boolean).join("; "),
+      };
+      await OmniBox.log("warn", `[毒舌03][request] HTTP 850, retry with cdndefend cookie: ${url}`);
+      const retryRes = await OmniBox.request(url, {
+        method,
+        headers: retryHeaders,
+        body: options.body,
+        timeout: options.timeout || 20000,
+      });
+      const retryStatus = Number(retryRes?.statusCode || 0);
+      const retryBody = retryRes?.body;
+      const retryText = typeof retryBody === "string" ? retryBody : Buffer.isBuffer(retryBody) ? retryBody.toString() : String(retryBody || "");
+      if (retryStatus === 200) return retryText;
+      throw new Error(`HTTP ${retryStatus || 850} @ ${url}`);
+    }
+  }
+
+  if (statusCode !== 200) {
+    throw new Error(`HTTP ${statusCode || "unknown"} @ ${url}`);
+  }
+  return text;
+}
+
+async function getCachedText(cacheKey, ttl, producer) {
+  try {
+    const cached = await OmniBox.getCache(cacheKey);
+    if (cached) return String(cached);
+  } catch (_) {}
+  const text = String(await producer());
+  try {
+    await OmniBox.setCache(cacheKey, text, ttl);
+  } catch (_) {}
+  return text;
+}
+
+function extractYearFromTitle(title) {
+  const match = String(title || "").match(/^(.*?)\s*-\s*.*?(\d{4})年最新/);
+  return match?.[2] || "";
+}
+
+function buildCard($, el, options = {}) {
+  const node = $(el);
+  const anchor = node.find("a[href]").first();
+  const href = anchor.attr("href") || "";
+  const imageNodes = node.find("img");
+  const images = imageNodes.toArray();
+  const poster = images.length > 1 ? $(images[1]) : $(images[0] || []);
+  const title = cleanText(
+    node.find(".v-item-title:not([style*='display: none'])").first().text()
+      || poster.attr("alt")
+      || anchor.attr("title")
+      || ""
+  );
+  const picSelectors = [
+    "a[href]",
+    ".v-item-cover img:not(#noneCoverImg)",
+    ".v-item-main img:not(#noneCoverImg)",
+    "img:not(#noneCoverImg)",
+  ];
+  const pic = pickImage($, node, picSelectors);
+  if (options.logImageDebug) {
+    const debug = summarizeImageCandidates($, node, picSelectors);
+    options.logImageDebug({ title, href, pic, debug });
+  }
+  const remarks = cleanText(node.find(".v-item-bottom span").first().text());
+  const score = cleanText(node.find(".v-item-top-left span").first().text());
+  return {
+    vod_id: absUrl(href),
+    vod_name: title,
+    vod_pic: absUrl(pic),
+    vod_pic_headers: { ...PIC_HEADERS },
+    vod_remarks: remarks || score,
+    vod_douban_score: score.replace(/^豆瓣[:：]?/, ""),
+  };
+}
+
+function parseModuleList(html, options = {}) {
+  const $ = cheerio.load(html);
+  const list = [];
+  $(".module-item").each((_, el) => list.push(buildCard($, el, options)));
+  return dedupeVodList(list).filter((item) => item.vod_id && item.vod_name);
+}
+
+function parseSearchList(html) {
+  const $ = cheerio.load(html);
+  const list = [];
+  $(".search-result-item[href]").each((_, el) => {
+    const node = $(el);
+    const href = node.attr("href") || "";
+    const title = cleanText(node.find(".title").first().text());
+    const pic = pickImage($, node, [
+      ".search-result-item-pic img:not(#noneCoverImg)",
+      ".search-result-item-side img:not(#noneCoverImg)",
+      "img:not(#noneCoverImg)",
+    ]);
+    const tags = node.find(".tags span").map((__, span) => cleanText($(span).text())).get().filter(Boolean);
+    const actor = cleanText(node.find(".actors span").first().text());
+    const desc = cleanText(node.find(".desc").first().text());
+    list.push({
+      vod_id: absUrl(href),
+      vod_name: title,
+      vod_pic: absUrl(pic),
+      vod_pic_headers: { ...PIC_HEADERS },
+      vod_remarks: tags.join("/") || actor,
+      vod_actor: actor,
+      vod_content: desc,
+    });
+  });
+  return dedupeVodList(list).filter((item) => item.vod_id && item.vod_name);
+}
+
+function parsePageCount(html, currentPage) {
+  const text = String(html || "");
+  let pagecount = Math.max(1, Number(currentPage || 1));
+  const patterns = [
+    /href=["'][^"']*channel\/\d+\.html\?page=(\d+)/gi,
+    /href=["'][^"']*channel\/\d+-(\d+)\.html["']/gi,
+    /href=["'][^"']*search\?[^"']*page=(\d+)/gi,
+    /href=["'][^"']*show\/\d+-[^"']*-([1-4])-(\d+)\.html["']/gi,
+  ];
+  for (const pattern of patterns) {
+    for (const match of text.matchAll(pattern)) {
+      const n = Number(match[2] || match[1] || 1);
+      if (Number.isFinite(n)) pagecount = Math.max(pagecount, n);
+    }
+  }
+  return pagecount;
+}
+
+function parseDetailRows($) {
+  const map = {};
+  $(".detail-info-row").each((_, row) => {
+    const label = cleanText($(row).find(".detail-info-row-side").first().text()).replace(/[：:]$/, "");
+    const value = cleanText($(row).find(".detail-info-row-main").first().text());
+    if (label && value) map[label] = value;
+  });
+  return map;
+}
+
+function parseDetailSources($) {
+  const sourceNames = $(".source-list-box-main .source-item .source-item-label")
+    .map((_, el) => cleanText($(el).text()))
+    .get()
+    .filter(Boolean);
+  const episodeLists = $(".episode-list-box-main .episode-list").toArray();
+  const sources = [];
+  episodeLists.forEach((listNode, index) => {
+    const episodes = [];
+    $(listNode).find("a[href]").each((__, a) => {
+      const href = $(a).attr("href") || "";
+      const name = cleanText($(a).text());
+      if (!href || !name) return;
+      episodes.push({ name, playId: absUrl(href) });
+    });
+    if (episodes.length) {
+      sources.push({
+        name: sourceNames[index] || `线路${index + 1}`,
+        episodes: dedupeEpisodes(episodes),
+      });
+    }
+  });
+  return sources;
+}
+
+function parseDetail(html, detailUrl, options = {}) {
+  const $ = cheerio.load(html);
+  const title = cleanText($(".detail-title strong").eq(1).text() || $("title").text().replace(/-.*$/, ""));
+  const picSelectors = [
+    "img:not(#noneCoverImg)",
+    "img[data-original]",
+    "img[data-src]",
+    "img[src]",
+  ];
+  const pic = absUrl(pickImage($, $(".detail-box-side").first(), picSelectors));
+  if (options.logImageDebug) {
+    options.logImageDebug({
+      title,
+      href: detailUrl,
+      pic,
+      debug: summarizeImageCandidates($, $(".detail-box-side").first(), picSelectors),
+    });
+  }
+  const tags = $(".detail-tags .detail-tags-item").map((_, el) => cleanText($(el).text())).get().filter(Boolean);
+  const meta = parseDetailRows($);
+  const desc = cleanText($(".detail-desc").first().text() || $("meta[name='description']").attr("content") || "");
+  const remarks = meta["备注"] || meta["状态"] || "";
+  const vod_play_sources = parseDetailSources($);
+  return {
+    vod_id: String(detailUrl || ""),
+    vod_name: title,
+    vod_pic: pic,
+    vod_pic_headers: { ...PIC_HEADERS },
+    vod_remarks: remarks,
+    vod_year: meta["首映"] ? String(meta["首映"]).slice(0, 4) : tags.find((tag) => /^\d{4}$/.test(tag)) || "",
+    vod_area: tags.find((tag) => /中国|美国|日本|韩国|英国|香港|台湾|泰国|法国|德国|印度/.test(tag)) || "",
+    type_name: tags.filter((tag) => !/^\d{4}$/.test(tag) && !/中国|美国|日本|韩国|英国|香港|台湾|泰国|法国|德国|印度/.test(tag)).join(","),
+    vod_actor: meta["演员"] || "",
+    vod_director: meta["导演"] || "",
+    vod_lang: meta["语言"] || "",
+    vod_content: desc,
+    vod_play_sources,
+  };
+}
+
+function decodeUnicodeEscapes(value) {
+  return String(value || "").replace(/\\u([0-9a-fA-F]{4})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+}
+
+function resolvePlayUrl(rawUrl) {
+  let playUrl = decodeUnicodeEscapes(String(rawUrl || "")).replace(/\\\//g, "/").replace(/\\/g, "").trim();
+  if (!playUrl) return "";
+  if (/^https?:\/\//i.test(playUrl)) return playUrl;
+  if (playUrl.startsWith("//")) return `https:${playUrl}`;
+  return absUrl(playUrl);
+}
+
+function extractPlaySource(html) {
+  const text = String(html || "");
+  const match = text.match(/const\s+playSource\s*=\s*\{([\s\S]*?)\};/i);
+  if (!match) return { url: "", type: "" };
+  const body = decodeUnicodeEscapes(match[1]);
+  const urlMatch = body.match(/['"]src['"]\s*:\s*['"]([^'"]+)['"]/i);
+  const typeMatch = body.match(/['"]type['"]\s*:\s*['"]([^'"]+)['"]/i);
+  return {
+    url: resolvePlayUrl(urlMatch?.[1] || ""),
+    type: decodeUnicodeEscapes(typeMatch?.[1] || ""),
+  };
+}
+
+async function resolvePlayPage(playPageUrl, referer) {
+  const html = await requestText(playPageUrl, { referer });
+  const source = extractPlaySource(html);
+  if (source.url) return source;
+  return { url: "", type: "" };
+}
+
+async function trySniffVideo(sniffUrl, headers = {}) {
+  if (!sniffUrl || typeof OmniBox.sniffVideo !== "function") return null;
+  try {
+    await OmniBox.log("info", `[毒舌03][play] sniffVideo start url=${sniffUrl} headers=${JSON.stringify(headers)}`);
+    const sniffed = await OmniBox.sniffVideo(sniffUrl, headers);
+    await OmniBox.log("info", `[毒舌03][play] sniffVideo result=${JSON.stringify(sniffed || null)}`);
+    if (sniffed?.url) {
+      return {
+        parse: 0,
+        url: sniffed.url,
+        urls: [{ name: "嗅探线路", url: sniffed.url }],
+        header: sniffed.header || headers,
+      };
+    }
+  } catch (e) {
+    await OmniBox.log("warn", `[毒舌03][play] sniffVideo failed: ${e.message || e}`);
+  }
+  return null;
+}
+
+function buildAppSniffFallback(sniffUrl, headers = {}) {
+  return {
+    parse: 1,
+    url: sniffUrl,
+    urls: [{ name: "嗅探线路", url: sniffUrl }],
+    header: headers,
+  };
+}
+
+function buildShowUrl(tid, ext = {}) {
+  const type = encodeSegment(ext.type || "");
+  const area = encodeSegment(ext.area || "");
+  const lang = encodeSegment(ext.lang || "");
+  const year = encodeSegment(ext.year || "");
+  const by = encodeSegment(ext.by || "3");
+  const page = Math.max(1, Number(ext.page || 1));
+  return `${BASE_URL}/show/${encodeURIComponent(String(tid || "1"))}-${type}-${area}-${lang}-${year}-${by}-${page}.html`;
+}
+
+async function home() {
+  try {
+    const html = await getCachedText("dushe03:home", HOME_CACHE_TTL, () => requestText(`${BASE_URL}/`));
+    let imageDebugLogged = 0;
+    const list = parseModuleList(html, {
+      logImageDebug: ({ title, href, pic, debug }) => {
+        if (imageDebugLogged >= 2) return;
+        imageDebugLogged += 1;
+        OmniBox.log("info", `[毒舌03][image][home] title=${title} href=${href} picked=${pic} abs=${absUrl(pic)} headers=${JSON.stringify(PIC_HEADERS)} debug=${JSON.stringify(debug)}`);
+      },
+    }).slice(0, 24);
+    await OmniBox.log("info", `[毒舌03][home] count=${list.length}`);
+    return { class: CLASS_LIST, filters: FILTERS, list };
+  } catch (e) {
+    await OmniBox.log("error", `[毒舌03][home] failed: ${e.message || e}`);
+    return { class: CLASS_LIST, filters: FILTERS, list: [] };
+  }
+}
+
+async function category(params = {}) {
+  try {
+    const tid = String(params.type_id || params.categoryId || params.tid || "1");
+    const page = Math.max(1, Number(params.page || params.pg || 1));
+    const extend = params.filters || params.extend || params.ext || {};
+    const hasFilter = ["type", "area", "lang", "year"].some((key) => String(extend[key] || "").length > 0) || String(extend.by || "") !== "";
+    const url = hasFilter || page > 1
+      ? buildShowUrl(tid, { ...extend, by: extend.by || "3", page })
+      : `${BASE_URL}${CATEGORY_SHOW_PATH[tid] || `/channel/${encodeURIComponent(tid)}.html`}`;
+    const html = await getCachedText(`dushe03:category:${tid}:${JSON.stringify(extend)}:${page}`, CATEGORY_CACHE_TTL, () => requestText(url));
+    let imageDebugLogged = 0;
+    const list = parseModuleList(html, {
+      logImageDebug: ({ title, href, pic, debug }) => {
+        if (imageDebugLogged >= 2) return;
+        imageDebugLogged += 1;
+        OmniBox.log("info", `[毒舌03][image][category] title=${title} href=${href} picked=${pic} abs=${absUrl(pic)} headers=${JSON.stringify(PIC_HEADERS)} debug=${JSON.stringify(debug)}`);
+      },
+    });
+    const pagecount = parsePageCount(html, page);
+    await OmniBox.log("info", `[毒舌03][category] tid=${tid} page=${page} filters=${JSON.stringify(extend)} url=${url.replace(BASE_URL, "")} count=${list.length} pagecount=${pagecount}`);
+    return {
+      page,
+      pagecount,
+      limit: list.length,
+      total: list.length,
+      filters: FILTERS[tid] || [],
+      list,
+    };
+  } catch (e) {
+    await OmniBox.log("error", `[毒舌03][category] failed: ${e.message || e}`);
+    return {
+      page: Number(params.page || params.pg || 1) || 1,
+      pagecount: 1,
+      limit: 0,
+      total: 0,
+      filters: FILTERS[String(params.type_id || params.categoryId || params.tid || "1")] || [],
+      list: [],
+    };
+  }
+}
+
+async function detail(params = {}) {
+  try {
+    const vodId = absUrl(params.vod_id || params.videoId || params.id || "");
+    if (!vodId) return { list: [] };
+    const html = await getCachedText(`dushe03:detail:${vodId}`, DETAIL_CACHE_TTL, () => requestText(vodId));
+    const vod = parseDetail(html, vodId, {
+      logImageDebug: ({ title, href, pic, debug }) => {
+        OmniBox.log("info", `[毒舌03][image][detail] title=${title} href=${href} picked=${pic} abs=${absUrl(pic)} headers=${JSON.stringify(PIC_HEADERS)} debug=${JSON.stringify(debug)}`);
+      },
+    });
+    await OmniBox.log("info", `[毒舌03][detail] vod=${vod.vod_name || vodId} sources=${vod.vod_play_sources?.length || 0}`);
+    return { list: [vod] };
+  } catch (e) {
+    await OmniBox.log("error", `[毒舌03][detail] failed: ${e.message || e}`);
+    return { list: [] };
+  }
+}
+
+async function search(params = {}) {
+  try {
+    const wd = String(params.wd || params.keyword || "").trim();
+    const page = Math.max(1, Number(params.page || 1));
+    if (!wd) return { page, pagecount: 1, limit: 0, total: 0, list: [] };
+    const homeHtml = await getCachedText("dushe03:home", HOME_CACHE_TTL, () => requestText(`${BASE_URL}/`));
+    const token = encodeURIComponent(extractSearchToken(homeHtml) || encodeSearchToken(wd));
+    const url = page > 1
+      ? `${BASE_URL}/search?k=${encodeURIComponent(wd)}&t=${token}&page=${page}`
+      : `${BASE_URL}/search?k=${encodeURIComponent(wd)}&t=${token}`;
+    const html = await getCachedText(`dushe03:search:${wd}:${page}`, SEARCH_CACHE_TTL, () => requestText(url, { referer: `${BASE_URL}/` }));
+    const list = parseSearchList(html);
+    const pagecount = parsePageCount(html, page);
+    await OmniBox.log("info", `[毒舌03][search] wd=${wd} page=${page} count=${list.length}`);
+    return {
+      page,
+      pagecount,
+      limit: list.length,
+      total: list.length,
+      list,
+    };
+  } catch (e) {
+    await OmniBox.log("error", `[毒舌03][search] failed: ${e.message || e}`);
+    return {
+      page: Number(params.page || 1) || 1,
+      pagecount: 1,
+      limit: 0,
+      total: 0,
+      list: [],
+    };
+  }
+}
+
+async function play(params = {}) {
+  try {
+    const playId = String(params.playId || params.id || "").trim();
+    if (!playId) return { parse: 0, url: "", urls: [], header: {} };
+
+    if (/\.(m3u8|mp4)(\?|#|$)/i.test(playId)) {
+      const url = resolvePlayUrl(playId);
+      return { parse: 0, url, urls: [{ name: "播放", url }], header: {} };
+    }
+
+    const absolutePlayId = absUrl(playId);
+    const sniffHeaders = { "User-Agent": UA, Referer: absolutePlayId || `${BASE_URL}/`, Origin: BASE_URL };
+    const cacheKey = `dushe03:play:${playId}`;
+    const resolved = await getCachedText(cacheKey, PLAY_CACHE_TTL, async () => {
+      if (/\/play\//.test(absolutePlayId)) {
+        const source = await resolvePlayPage(absolutePlayId, `${BASE_URL}/`);
+        return JSON.stringify({ ...source, pageUrl: absolutePlayId });
+      }
+      if (/\/detail\//.test(absolutePlayId)) {
+        const detailHtml = await requestText(absolutePlayId);
+        const vod = parseDetail(detailHtml, absolutePlayId);
+        const first = vod?.vod_play_sources?.[0]?.episodes?.[0]?.playId || "";
+        if (first && first !== absolutePlayId) {
+          if (/\.(m3u8|mp4)(\?|#|$)/i.test(first)) return JSON.stringify({ url: resolvePlayUrl(first), type: "", pageUrl: absolutePlayId });
+          if (/\/play\//.test(first)) {
+            const source = await resolvePlayPage(first, absolutePlayId);
+            return JSON.stringify({ ...source, pageUrl: absUrl(first) });
+          }
+          return JSON.stringify({ url: first, type: "", pageUrl: absolutePlayId });
+        }
+      }
+      return JSON.stringify({ url: "", type: "", pageUrl: absolutePlayId });
+    });
+
+    const parsed = (() => {
+      try {
+        return JSON.parse(String(resolved || "{}"));
+      } catch (_) {
+        return { url: String(resolved || ""), pageUrl: absolutePlayId };
+      }
+    })();
+
+    if (parsed?.url) {
+      const url = resolvePlayUrl(parsed.url);
+      const pageUrl = absUrl(parsed.pageUrl || absolutePlayId);
+      const directHeaders = /\.(m3u8|mp4)(\?|#|$)/i.test(url) ? { Referer: pageUrl || `${BASE_URL}/`, Origin: BASE_URL, "User-Agent": UA } : {};
+      await OmniBox.log("info", `[毒舌03][play] resolved type=${parsed.type || "unknown"} url=${url} pageUrl=${pageUrl}`);
+      if (/\.(m3u8|mp4)(\?|#|$)/i.test(url)) {
+        return { parse: 0, url, urls: [{ name: "播放", url }], header: directHeaders };
+      }
+      const sniffResult = await trySniffVideo(url, { ...sniffHeaders, Referer: pageUrl || url, Origin: BASE_URL });
+      if (sniffResult) return sniffResult;
+      await OmniBox.log("warn", `[毒舌03][play] sdk sniff failed, fallback parse=1 url=${url}`);
+      return buildAppSniffFallback(url, { ...sniffHeaders, Referer: pageUrl || url, Origin: BASE_URL });
+    }
+
+    const sniffResult = await trySniffVideo(absolutePlayId, sniffHeaders);
+    if (sniffResult) return sniffResult;
+
+    await OmniBox.log("warn", `[毒舌03][play] final fallback parse=1 url=${absolutePlayId}`);
+    return buildAppSniffFallback(absolutePlayId, sniffHeaders);
+  } catch (e) {
+    await OmniBox.log("error", `[毒舌03][play] failed: ${e.message || e}`);
+    return { parse: 0, url: "", urls: [], header: {} };
+  }
+}
+
+});
+
+_load(10, "毒舌影视", function (module, exports, require) {
+// @name 毒舌影视
+// @author 梦
+// @description 影视站：https://www.xnhrsb.com/ ，支持首页、分类、详情、搜索与播放
+// @dependencies cheerio
+// @version 1.0.3
+// @downloadURL https://gh-proxy.org/https://github.com/Silent1566/OmniBox-Spider/raw/refs/heads/main/影视/采集/毒舌影视.js
+
+const OmniBox = require("omnibox_sdk");
+const runner = require("spider_runner");
+const cheerio = require("cheerio");
+
+const BASE_URL = (process.env.DUSHE_HOST || "https://m.xnhrsb.com").replace(/\/$/, "");
+const UA = process.env.DUSHE_UA || "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
+const HOME_CACHE_TTL = Number(process.env.DUSHE_HOME_CACHE_TTL || 900);
+const CATEGORY_CACHE_TTL = Number(process.env.DUSHE_CATEGORY_CACHE_TTL || 900);
+const DETAIL_CACHE_TTL = Number(process.env.DUSHE_DETAIL_CACHE_TTL || 1800);
+const SEARCH_CACHE_TTL = Number(process.env.DUSHE_SEARCH_CACHE_TTL || 600);
+const PLAY_CACHE_TTL = Number(process.env.DUSHE_PLAY_CACHE_TTL || 900);
+
+const CATEGORY_CONFIG = [
+  { id: "1", name: "电影" },
+  { id: "2", name: "电视剧" },
+  { id: "3", name: "综艺" },
+  { id: "4", name: "动漫" },
+  { id: "5", name: "短剧" },
+  { id: "duoban", name: "豆瓣" },
+];
+
+const CLASS_LIST = CATEGORY_CONFIG.map((item) => ({ type_id: item.id, type_name: item.name }));
+const FILTERS = Object.fromEntries(
+  CATEGORY_CONFIG.map((item) => [
+    item.id,
+    [
+      {
+        key: "type",
+        name: "分类",
+        value: [{ name: "全部", value: item.id }],
+      },
+    ],
+  ])
+);
+
+module.exports = { home, category, detail, search, play };
+runner.run(module.exports);
+
+function absUrl(url) {
+  const raw = String(url || "").trim();
+  if (!raw) return "";
+  if (/^https?:\/\//i.test(raw)) return raw;
+  if (raw.startsWith("//")) return `https:${raw}`;
+  try {
+    return new URL(raw, `${BASE_URL}/`).toString();
+  } catch (_) {
+    return raw;
+  }
+}
+
+function cleanText(value) {
+  return String(value || "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&#160;/gi, " ")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\r/g, "")
+    .replace(/[ \t\f\v]+/g, " ")
+    .replace(/\n\s*\n+/g, "\n")
+    .trim();
+}
+
+function dedupeVodList(list) {
+  const out = [];
+  const seen = new Set();
+  for (const item of Array.isArray(list) ? list : []) {
+    const key = String(item?.vod_id || item?.vod_name || "");
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+  }
+  return out;
+}
+
+async function requestText(url, options = {}) {
+  const method = options.method || "GET";
+  await OmniBox.log("info", `[毒舌影视][request] ${method} ${url}`);
+  const res = await OmniBox.request(url, {
+    method,
+    headers: {
+      "User-Agent": UA,
+      "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+      Referer: options.referer || `${BASE_URL}/`,
+      ...(options.headers || {}),
+    },
+    body: options.body,
+    timeout: options.timeout || 20000,
+  });
+  const statusCode = Number(res?.statusCode || 0);
+  const body = res?.body;
+  const text = typeof body === "string" ? body : String(body || "");
+  if (statusCode !== 200) {
+    throw new Error(`HTTP ${statusCode || "unknown"} @ ${url}`);
+  }
+  return text;
+}
+
+async function getCachedText(cacheKey, ttl, producer) {
+  try {
+    const cached = await OmniBox.getCache(cacheKey);
+    if (cached) return String(cached);
+  } catch (_) {}
+  const text = String(await producer());
+  try {
+    await OmniBox.setCache(cacheKey, text, ttl);
+  } catch (_) {}
+  return text;
+}
+
+function buildCard($, li) {
+  const node = $(li);
+  const anchor = node.find("a[href]").first();
+  const titleAnchor = node.find(".dytit a[href]").first();
+  const href = titleAnchor.attr("href") || anchor.attr("href") || "";
+  const img = node.find("img").first();
+  const title = cleanText(titleAnchor.text() || img.attr("alt") || anchor.attr("title") || "");
+  const pic = img.attr("data-original") || img.attr("src") || "";
+  const remarks = cleanText(node.find(".hdinfo,.jidi,.bz").first().text());
+  const actor = cleanText(node.find(".inzhuy").first().text().replace(/^主演[:：]?/, ""));
+  return {
+    vod_id: absUrl(href),
+    vod_name: title,
+    vod_pic: absUrl(pic),
+    vod_remarks: remarks,
+    vod_actor: actor,
+  };
+}
+
+function parseHomeList(html) {
+  const $ = cheerio.load(html);
+  const list = [];
+  $(".bt_img ul li").each((_, li) => list.push(buildCard($, li)));
+  return dedupeVodList(list).filter((item) => item.vod_id && item.vod_name);
+}
+
+function parseCategoryList(html) {
+  const $ = cheerio.load(html);
+  const list = [];
+  $(".bt_img ul li").each((_, li) => list.push(buildCard($, li)));
+
+  let pagecount = 1;
+  $("a[href]").each((_, a) => {
+    const href = $(a).attr("href") || "";
+    const matches = [...href.matchAll(/-(\d+)---\.html/g)];
+    for (const m of matches) {
+      const n = Number(m[1] || 1);
+      if (Number.isFinite(n)) pagecount = Math.max(pagecount, n);
+    }
+  });
+
+  return {
+    list: dedupeVodList(list).filter((item) => item.vod_id && item.vod_name),
+    pagecount,
+  };
+}
+
+function parseMetaByLabel($, labels) {
+  const needle = Array.isArray(labels) ? labels : [labels];
+  let found = "";
+  $("li,p,span,div").each((_, el) => {
+    if (found) return;
+    const text = cleanText($(el).text());
+    if (!text) return;
+    for (const label of needle) {
+      const normalized = String(label || "");
+      if (text.startsWith(normalized)) {
+        found = text.replace(new RegExp(`^${normalized}`), "").trim();
+        return;
+      }
+    }
+  });
+  return found;
+}
+
+function parseDetailSources($, detailUrl) {
+  const sources = [];
+
+  $(".mi_paly_box, .play_source, .playlist, .stui-content__playlist").each((_, box) => {
+    const node = $(box);
+    const sourceName = cleanText(
+      node.find(".ypxingq_t,.option,.nav-tabs li.active,a.active,li.active,span.active,h3,h4").first().text()
+    ) || `线路${sources.length + 1}`;
+    const episodes = [];
+    node.find(".paly_list_btn a[href], .playlist a[href], li a[href], a[href]").each((__, a) => {
+      const href = $(a).attr("href") || "";
+      const name = cleanText($(a).attr("title") || $(a).text());
+      if (!href || !name) return;
+      episodes.push({ name, playId: absUrl(href) });
+    });
+    if (episodes.length) sources.push({ name: sourceName, episodes });
+  });
+
+  if (!sources.length) {
+    const episodes = [];
+    $("a[href]").each((_, a) => {
+      const href = $(a).attr("href") || "";
+      const name = cleanText($(a).attr("title") || $(a).text());
+      if (!/\/dsshiyipy\//.test(href)) return;
+      if (!name) return;
+      episodes.push({ name, playId: absUrl(href) });
+    });
+    if (episodes.length) {
+      sources.push({ name: "在线播放", episodes: dedupeEpisodes(episodes) });
+    }
+  }
+
+  if (!sources.length && detailUrl) {
+    sources.push({
+      name: "在线播放",
+      episodes: [{ name: "立即播放", playId: String(detailUrl) }],
+    });
+  }
+
+  return sources.map((source) => ({ ...source, episodes: dedupeEpisodes(source.episodes) }));
+}
+
+function shouldKeepEpisodeName(name) {
+  const text = cleanText(name || "");
+  if (!text) return false;
+  if (text.includes("APP秒播")) return false;
+  return true;
+}
+
+function dedupeEpisodes(episodes) {
+  const out = [];
+  const seen = new Set();
+  for (const ep of Array.isArray(episodes) ? episodes : []) {
+    const name = cleanText(ep?.name || "");
+    const playId = String(ep?.playId || "").trim();
+    const key = `${name}|${playId}`;
+    if (!name || !playId || !shouldKeepEpisodeName(name) || seen.has(key)) continue;
+    seen.add(key);
+    out.push({ ...ep, name, playId });
+  }
+  return out;
+}
+
+function parseDetail(html, detailUrl) {
+  const $ = cheerio.load(html);
+  const title = cleanText($("h1").first().text() || $("title").text().replace(/[-_].*$/, ""));
+  const pic = absUrl($("div.dyimg img, .dyimg img, .thumb img, .poster img, img.thumb").first().attr("src") || $("img[data-original]").first().attr("data-original") || "");
+  const remarks = parseMetaByLabel($, ["状态：", "备注：", "更新："]);
+  const year = parseMetaByLabel($, ["年份：", "年代："]);
+  const area = parseMetaByLabel($, ["地区："]);
+  const typeName = parseMetaByLabel($, ["类型："]);
+  const actor = parseMetaByLabel($, ["主演："]);
+  const director = parseMetaByLabel($, ["导演："]);
+  const lang = parseMetaByLabel($, ["语言："]);
+  const douban = parseMetaByLabel($, ["豆瓣：", "评分："]);
+  const content = cleanText($(".yp_context,.moviedteail_content,.content,.jianjie,.vod_content").first().html() || $("meta[name='description']").attr("content") || "");
+  const vod_play_sources = parseDetailSources($, detailUrl);
+
+  return {
+    vod_id: String(detailUrl || ""),
+    vod_name: title,
+    vod_pic: pic,
+    vod_remarks: remarks,
+    vod_year: year,
+    vod_area: area,
+    type_name: typeName,
+    vod_actor: actor,
+    vod_director: director,
+    vod_lang: lang,
+    vod_douban_score: douban,
+    vod_content: content,
+    vod_play_sources,
+  };
+}
+
+function resolvePlayUrl(rawUrl) {
+  let playUrl = String(rawUrl || "").trim();
+  if (!playUrl) return "";
+  playUrl = playUrl.replace(/\\\//g, "/").replace(/\\/g, "");
+  if (/^https?:\/\//i.test(playUrl)) return playUrl;
+  if (playUrl.startsWith("//")) return `https:${playUrl}`;
+  return absUrl(playUrl);
+}
+
+function extractJsonUrl(text) {
+  const raw = String(text || "");
+  const patterns = [
+    /player_aaaa\s*=\s*([^;]+);/i,
+    /MacPlayerConfig\.player_aaaa\s*=\s*([^;]+);/i,
+  ];
+  for (const pattern of patterns) {
+    const match = raw.match(pattern);
+    if (!match) continue;
+    try {
+      const data = JSON.parse(String(match[1]).replace(/'/g, '"'));
+      const url = data?.url || data?.src || "";
+      if (url) return url;
+    } catch (_) {}
+  }
+
+  const directPatterns = [
+    /["']url["']\s*[,:=]\s*["']([^"']+\.(?:m3u8|mp4)(?:[^"']*)?)["']/i,
+    /["']src["']\s*[,:=]\s*["']([^"']+\.(?:m3u8|mp4)(?:[^"']*)?)["']/i,
+    /sourceUrl\s*[=:]\s*["']?([^"'\s]+)["']?/i,
+    /video\.src\s*=\s*["']?([^"'\s]+)["']?/i,
+    /playUrl\s*[=:]\s*["']?([^"'\s]+)["']?/i,
+  ];
+  for (const pattern of directPatterns) {
+    const match = raw.match(pattern);
+    if (match?.[1]) return match[1];
+  }
+  return "";
+}
+
+async function resolvePlayPage(playPageUrl, referer) {
+  const html = await requestText(playPageUrl, { referer });
+  let playUrl = extractJsonUrl(html);
+  if (playUrl) return resolvePlayUrl(playUrl);
+
+  const apiMatch = html.match(/\$\.getJSON\(['"]([^'"]+)['"]/i);
+  if (apiMatch?.[1]) {
+    try {
+      const apiUrl = absUrl(apiMatch[1]);
+      const body = await requestText(apiUrl, { referer: playPageUrl });
+      try {
+        const json = JSON.parse(body);
+        const nested = json?.url || json?.data?.url || json?.data?.src || "";
+        if (nested) return resolvePlayUrl(nested);
+      } catch (_) {}
+    } catch (_) {}
+  }
+
+  const $ = cheerio.load(html);
+  const iframeSrc = $("iframe").first().attr("src") || "";
+  if (iframeSrc) {
+    const iframeUrl = absUrl(iframeSrc);
+    try {
+      const iframeHtml = await requestText(iframeUrl, { referer: playPageUrl });
+      playUrl = extractJsonUrl(iframeHtml);
+      if (playUrl) return resolvePlayUrl(playUrl);
+    } catch (_) {}
+  }
+
+  return "";
+}
+
+async function home() {
+  try {
+    const html = await getCachedText("dushe:home", HOME_CACHE_TTL, () => requestText(`${BASE_URL}/`));
+    const list = parseHomeList(html).slice(0, 24);
+    await OmniBox.log("info", `[毒舌影视][home] count=${list.length}`);
+    return {
+      class: CLASS_LIST,
+      filters: FILTERS,
+      list,
+    };
+  } catch (e) {
+    await OmniBox.log("error", `[毒舌影视][home] failed: ${e.message || e}`);
+    return {
+      class: CLASS_LIST,
+      filters: FILTERS,
+      list: [],
+    };
+  }
+}
+
+async function category(params = {}) {
+  try {
+    const tid = String(params.type_id || params.categoryId || params.tid || "1");
+    const page = Math.max(1, Number(params.page || params.pg || 1));
+    const url = `${BASE_URL}/dsshiyisw/${encodeURIComponent(tid)}--------${page}---.html`;
+    const html = await getCachedText(`dushe:category:${tid}:${page}`, CATEGORY_CACHE_TTL, () => requestText(url));
+    const parsed = parseCategoryList(html);
+    await OmniBox.log("info", `[毒舌影视][category] tid=${tid} page=${page} count=${parsed.list.length} pagecount=${parsed.pagecount}`);
+    return {
+      page,
+      pagecount: parsed.pagecount || page,
+      limit: parsed.list.length,
+      total: parsed.list.length,
+      filters: FILTERS[tid] || {},
+      list: parsed.list,
+    };
+  } catch (e) {
+    await OmniBox.log("error", `[毒舌影视][category] failed: ${e.message || e}`);
+    return {
+      page: Number(params.page || params.pg || 1) || 1,
+      pagecount: 1,
+      limit: 0,
+      total: 0,
+      filters: FILTERS[String(params.type_id || params.categoryId || params.tid || "1")] || {},
+      list: [],
+    };
+  }
+}
+
+async function detail(params = {}) {
+  try {
+    const vodId = absUrl(params.vod_id || params.videoId || params.id || "");
+    if (!vodId) {
+      await OmniBox.log("warn", `[毒舌影视][detail] empty id params=${JSON.stringify(params || {})}`);
+      return { list: [] };
+    }
+    const html = await getCachedText(`dushe:detail:${vodId}`, DETAIL_CACHE_TTL, () => requestText(vodId));
+    const vod = parseDetail(html, vodId);
+    await OmniBox.log("info", `[毒舌影视][detail] vod=${vod.vod_name || vodId} sources=${vod.vod_play_sources?.length || 0}`);
+    return { list: [vod] };
+  } catch (e) {
+    await OmniBox.log("error", `[毒舌影视][detail] failed: ${e.message || e}`);
+    return { list: [] };
+  }
+}
+
+async function search(params = {}) {
+  try {
+    const wd = String(params.wd || params.keyword || "").trim();
+    const page = Math.max(1, Number(params.page || 1));
+    if (!wd) {
+      return { page, pagecount: 1, limit: 0, total: 0, list: [] };
+    }
+    const url = `${BASE_URL}/dsshiyisc/${encodeURIComponent(wd)}----------${page}---.html`;
+    const html = await getCachedText(`dushe:search:${wd}:${page}`, SEARCH_CACHE_TTL, () => requestText(url, { referer: `${BASE_URL}/` }));
+    const parsed = parseCategoryList(html);
+    await OmniBox.log("info", `[毒舌影视][search] wd=${wd} page=${page} count=${parsed.list.length}`);
+    return {
+      page,
+      pagecount: parsed.pagecount || page,
+      limit: parsed.list.length,
+      total: parsed.list.length,
+      list: parsed.list,
+    };
+  } catch (e) {
+    await OmniBox.log("error", `[毒舌影视][search] failed: ${e.message || e}`);
+    return {
+      page: Number(params.page || 1) || 1,
+      pagecount: 1,
+      limit: 0,
+      total: 0,
+      list: [],
+    };
+  }
+}
+
+async function play(params = {}) {
+  try {
+    const playId = String(params.playId || params.id || "").trim();
+    if (!playId) return { parse: 0, url: "", urls: [], header: {} };
+
+    if (/\.(m3u8|mp4)(\?|#|$)/i.test(playId)) {
+      const url = resolvePlayUrl(playId);
+      return { parse: 0, url, urls: [{ name: "播放", url }], header: {} };
+    }
+
+    const cacheKey = `dushe:play:${playId}`;
+    const resolved = await getCachedText(cacheKey, PLAY_CACHE_TTL, async () => {
+      const absolutePlayId = absUrl(playId);
+      if (/\/dsshiyipy\//.test(absolutePlayId)) {
+        const url = await resolvePlayPage(absolutePlayId, `${BASE_URL}/`);
+        return url || "";
+      }
+      if (/\/dsshiyidt\//.test(absolutePlayId)) {
+        const detailHtml = await requestText(absolutePlayId);
+        const vod = parseDetail(detailHtml, absolutePlayId);
+        const first = vod?.vod_play_sources?.[0]?.episodes?.[0]?.playId || "";
+        if (first && first !== absolutePlayId) {
+          if (/\.(m3u8|mp4)(\?|#|$)/i.test(first)) return resolvePlayUrl(first);
+          if (/\/dsshiyipy\//.test(first)) {
+            const url = await resolvePlayPage(first, absolutePlayId);
+            return url || first;
+          }
+          return first;
+        }
+      }
+      return "";
+    });
+
+    if (resolved) {
+      const url = resolvePlayUrl(resolved);
+      await OmniBox.log("info", `[毒舌影视][play] parse=0 url=${url}`);
+      return { parse: 0, url, urls: [{ name: "播放", url }], header: {} };
+    }
+
+    const fallback = absUrl(playId);
+    await OmniBox.log("warn", `[毒舌影视][play] fallback parse=1 url=${fallback}`);
+    return { parse: 1, url: fallback, urls: [{ name: "播放", url: fallback }], header: {} };
+  } catch (e) {
+    await OmniBox.log("error", `[毒舌影视][play] failed: ${e.message || e}`);
+    return { parse: 0, url: "", urls: [], header: {} };
+  }
+}
+
+});
+
+_load(11, "热播", function (module, exports, require) {
+// @name 热播
+// @author 
+// @description 刮削：支持，弹幕：支持，嗅探：支持
+// @dependencies: axios, crypto-js
+// @version 1.0.3
+// @downloadURL https://gh-proxy.org/https://github.com/Silent1566/OmniBox-Spider/raw/refs/heads/main/影视/采集/热播.js
+
+/**
+ * OmniBox 爬虫脚本 - 热播（APP 接口）
+ *
+ * 说明：
+ * 1. 本脚本基于 `本地调试/热播.js` 逻辑转换为 OmniBox 标准 JS 模板结构。
+ * 2. 接口包含：`home` / `category` / `search` / `detail` / `play`。
+ * 3. 详情接口将旧式播放数据转换为 `vod_play_sources`，供播放器直接识别。
+ * 4. `playId` 使用 Base64(JSON) 透传，播放阶段再解码并按原逻辑解析。
+ *
+ * 环境变量：
+ * - `REBANG_HOST`：站点 Host，默认 `http://v.rbotv.cn`
+ *
+ * 兼容说明：
+ * - 保留了原脚本签名算法（`sign + timestamp`）与 multipart/form-data 请求体构造。
+ * - 保留了原脚本的解析回退逻辑：解析接口失败时返回 `parse=1`。
+ */
+
+const axios = require("axios");
+const http = require("http");
+const https = require("https");
+const CryptoJS = require("crypto-js");
+const OmniBox = require("omnibox_sdk");
+
+// ==================== 配置区域 ====================
+const HOST = process.env.REBANG_HOST || "http://v.rbotv.cn";
+const DANMU_API = process.env.DANMU_API || "";
+const UA = "okhttp-okgo/jeasonlzy";
+const FORM_BOUNDARY = "18a7affc-a82a-4dc2-a848-7b0658d7665c";
+
+const DEFAULT_HEADERS = {
+  "User-Agent": UA,
+  "Accept-Language": "zh-CN,zh;q=0.8",
+  Referer: HOST,
+};
+
+const PLAY_HEADERS = {
+  "User-Agent": UA,
+  Referer: HOST,
+};
+
+const axiosInstance = axios.create({
+  timeout: 20 * 1000,
+  httpsAgent: new https.Agent({ keepAlive: true, rejectUnauthorized: false }),
+  httpAgent: new http.Agent({ keepAlive: true }),
+  headers: DEFAULT_HEADERS,
+  responseType: "json",
+});
+
+// ==================== 日志工具 ====================
+function logInfo(message, data = null) {
+  const output = data ? `${message}: ${JSON.stringify(data)}` : message;
+  OmniBox.log("info", `[热播] ${output}`);
+}
+
+function logError(message, error) {
+  OmniBox.log("error", `[热播] ${message}: ${error?.message || error}`);
+}
+
+// ==================== 编解码与签名工具 ====================
+/**
+ * UTF8 -> Base64
+ * @param {string} text 文本
+ * @returns {string}
+ */
+function e64(text) {
+  try {
+    return CryptoJS.enc.Utf8.parse(String(text || "")).toString(CryptoJS.enc.Base64);
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Base64 -> UTF8
+ * @param {string} encodedText Base64 文本
+ * @returns {string}
+ */
+function d64(encodedText) {
+  try {
+    return CryptoJS.enc.Base64.parse(String(encodedText || "")).toString(CryptoJS.enc.Utf8);
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * 生成 POST 请求体（multipart/form-data），沿用原站签名算法。
+ * @param {Object} params 业务参数
+ * @returns {{ body: string, headers: Object }}
+ */
+function buildSignedMultipartBody(params = {}) {
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const signStr = `7gp0bnd2sr85ydii2j32pcypscoc4w6c7g5spl${timestamp}`;
+  const sign = CryptoJS.MD5(signStr).toString();
+
+  let body = "";
+  for (const [key, value] of Object.entries(params)) {
+    body += `--${FORM_BOUNDARY}\r\n`;
+    body += `Content-Disposition: form-data; name="${key}"\r\n\r\n`;
+    body += `${value}\r\n`;
+  }
+
+  body += `--${FORM_BOUNDARY}\r\n`;
+  body += `Content-Disposition: form-data; name="sign"\r\n\r\n`;
+  body += `${sign}\r\n`;
+  body += `--${FORM_BOUNDARY}\r\n`;
+  body += `Content-Disposition: form-data; name="timestamp"\r\n\r\n`;
+  body += `${timestamp}\r\n`;
+  body += `--${FORM_BOUNDARY}--\r\n`;
+
+  return {
+    body,
+    headers: {
+      ...DEFAULT_HEADERS,
+      "Content-Type": `multipart/form-data; boundary=${FORM_BOUNDARY}`,
+    },
+  };
+}
+
+/**
+ * 请求热播接口
+ * @param {string} url 接口地址
+ * @param {string} method 请求方法
+ * @param {Object} params 参数
+ * @returns {Promise<Object|null>}
+ */
+async function requestApi(url, method = "GET", params = {}) {
+  try {
+    const options = {
+      method,
+      headers: { ...DEFAULT_HEADERS },
+    };
+
+    if (method.toUpperCase() === "POST") {
+      const multipart = buildSignedMultipartBody(params);
+      options.data = multipart.body;
+      options.headers = { ...multipart.headers };
+    }
+
+    const response = await axiosInstance(url, options);
+    return response.data;
+  } catch (error) {
+    logError(`请求失败: ${url}`, error);
+    return null;
+  }
+}
+
+// ==================== 数据转换工具 ====================
+/**
+ * 将接口列表数据转成 OmniBox 标准视频列表结构。
+ * @param {Array} videos 原始数组
+ * @returns {Array}
+ */
+function formatVideoList(videos) {
+  return (videos || []).map((vod) => ({
+    vod_id: String(vod.vod_id || ""),
+    vod_name: vod.vod_name || "",
+    vod_pic: vod.vod_pic || vod.vod_pic_thumb || "",
+    vod_remarks: vod.vod_remarks || "",
+    vod_year: vod.tag || "",
+  }));
+}
+
+// ==================== 弹幕工具 ====================
+function preprocessTitle(title) {
+  if (!title) return "";
+  return title
+    .replace(/4[kK]|[xX]26[45]|720[pP]|1080[pP]|2160[pP]/g, " ")
+    .replace(/[hH]\.?26[45]/g, " ")
+    .replace(/BluRay|WEB-DL|HDR|REMUX/gi, " ")
+    .replace(/\.mp4|\.mkv|\.avi|\.flv/gi, " ");
+}
+
+function chineseToArabic(cn) {
+  const map = { 零: 0, 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 };
+  if (!isNaN(cn)) return parseInt(cn, 10);
+  if (cn.length === 1) return map[cn] || cn;
+  if (cn.length === 2) {
+    if (cn[0] === "十") return 10 + map[cn[1]];
+    if (cn[1] === "十") return map[cn[0]] * 10;
+  }
+  if (cn.length === 3) return map[cn[0]] * 10 + map[cn[2]];
+  return cn;
+}
+
+function extractEpisode(title) {
+  if (!title) return "";
+  const processedTitle = preprocessTitle(title).trim();
+
+  const cnMatch = processedTitle.match(/第\s*([零一二三四五六七八九十0-9]+)\s*[集话章节回期]/);
+  if (cnMatch) return String(chineseToArabic(cnMatch[1]));
+
+  const seMatch = processedTitle.match(/[Ss](?:\d{1,2})?[-._\s]*[Ee](\d{1,3})/i);
+  if (seMatch) return seMatch[1];
+
+  const epMatch = processedTitle.match(/\b(?:EP|E)[-._\s]*(\d{1,3})\b/i);
+  if (epMatch) return epMatch[1];
+
+  const bracketMatch = processedTitle.match(/[\[\(【(](\d{1,3})[\]\)】)]/);
+  if (bracketMatch) {
+    const num = bracketMatch[1];
+    if (!["720", "1080", "480"].includes(num)) return num;
+  }
+
+  return "";
+}
+
+function buildFileNameForDanmu(vodName, episodeTitle) {
+  if (!vodName) return "";
+  if (!episodeTitle || episodeTitle === "正片" || episodeTitle === "播放") return vodName;
+
+  const digits = extractEpisode(episodeTitle);
+  if (digits) {
+    const epNum = parseInt(digits, 10);
+    if (epNum > 0) {
+      if (epNum < 10) return `${vodName} S01E0${epNum}`;
+      return `${vodName} S01E${epNum}`;
+    }
+  }
+  return vodName;
+}
+
+function buildScrapedEpisodeName(scrapeData, mapping, originalName) {
+  if (!mapping || mapping.episodeNumber === 0 || (mapping.confidence && mapping.confidence < 0.5)) {
+    return originalName;
+  }
+
+  if (mapping.episodeName) {
+    const epName = mapping.episodeNumber + "." + mapping.episodeName;
+    return epName;
+  }
+
+  if (scrapeData && Array.isArray(scrapeData.episodes)) {
+    const hit = scrapeData.episodes.find(
+      (ep) => ep.episodeNumber === mapping.episodeNumber && ep.seasonNumber === mapping.seasonNumber
+    );
+    if (hit?.name) {
+      return `${hit.episodeNumber}.${hit.name}`;
+    }
+  }
+
+  return originalName;
+}
+
+function buildScrapedDanmuFileName(scrapeData, scrapeType, mapping, fallbackVodName, fallbackEpisodeName) {
+  if (!scrapeData) {
+    return buildFileNameForDanmu(fallbackVodName, fallbackEpisodeName);
+  }
+
+  if (scrapeType === "movie") {
+    return scrapeData.title || fallbackVodName;
+  }
+
+  const title = scrapeData.title || fallbackVodName;
+  const seasonAirYear = scrapeData.seasonAirYear || "";
+  const seasonNumber = mapping?.seasonNumber || 1;
+  const episodeNumber = mapping?.episodeNumber || 1;
+  return `${title}.${seasonAirYear}.S${String(seasonNumber).padStart(2, "0")}E${String(episodeNumber).padStart(2, "0")}`;
+}
+
+async function matchDanmu(fileName) {
+  if (!DANMU_API || !fileName) return [];
+
+  try {
+    const matchUrl = `${DANMU_API}/api/v2/match`;
+    const response = await OmniBox.request(matchUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      },
+      body: JSON.stringify({ fileName }),
+    });
+
+    if (response.statusCode !== 200) {
+      logInfo(`弹幕匹配失败: HTTP ${response.statusCode}`);
+      return [];
+    }
+
+    const matchData = JSON.parse(response.body);
+    if (!matchData.isMatched) return [];
+
+    const matches = matchData.matches || [];
+    if (matches.length === 0) return [];
+
+    const firstMatch = matches[0];
+    const episodeId = firstMatch.episodeId;
+    const animeTitle = firstMatch.animeTitle || "";
+    const episodeTitle = firstMatch.episodeTitle || "";
+    if (!episodeId) return [];
+
+    let danmakuName = "弹幕";
+    if (animeTitle && episodeTitle) {
+      danmakuName = `${animeTitle} - ${episodeTitle}`;
+    } else if (animeTitle) {
+      danmakuName = animeTitle;
+    } else if (episodeTitle) {
+      danmakuName = episodeTitle;
+    }
+
+    return [{
+      name: danmakuName,
+      url: `${DANMU_API}/api/v2/comment/${episodeId}?format=xml`,
+    }];
+  } catch (error) {
+    logInfo(`弹幕匹配失败: ${error.message}`);
+    return [];
+  }
+}
+
+/**
+ * 嗅探播放页，兜底提取真实视频地址
+ */
+async function sniffRebangPlay(playUrl) {
+  if (!playUrl) return null;
+  try {
+    logInfo("尝试嗅探播放页", playUrl);
+    const sniffed = await OmniBox.sniffVideo(playUrl);
+    if (sniffed && sniffed.url) {
+      logInfo("嗅探成功", sniffed.url);
+      return {
+        urls: [{ name: "嗅探线路", url: sniffed.url }],
+        parse: 0,
+        header: sniffed.header || { ...PLAY_HEADERS, Referer: playUrl },
+      };
+    }
+  } catch (error) {
+    logInfo(`嗅探失败: ${error.message}`);
+  }
+  return null;
+}
+
+/**
+ * 将旧数据中的 `vod_play_list` 转换为 `vod_play_sources`。
+ *
+ * 每个剧集 `playId` 存储为 Base64(JSON)：
+ * {
+ *   url: 实际播放地址,
+ *   p: 解析接口列表,
+ *   r: Referer,
+ *   u: User-Agent
+ * }
+ *
+ * @param {Array} vodPlayList 原始播放列表
+ * @returns {Array}
+ */
+function convertVodPlayListToSources(vodPlayList, vodName = "", videoId = "") {
+  const playSources = [];
+
+  (vodPlayList || []).forEach((line, index) => {
+    const episodes = [];
+
+    (line.urls || []).forEach((item, epIndex) => {
+      const fid = `${videoId}#${index}#${epIndex}`;
+      const playData = {
+        url: item.url,
+        p: line.parse_urls,
+        r: line.referer,
+        u: line.ua,
+        v: vodName,
+        e: item.name || `第${episodes.length + 1}集`,
+        sid: videoId,
+        fid,
+      };
+
+      episodes.push({
+        name: item.name || `第${episodes.length + 1}集`,
+        playId: e64(JSON.stringify(playData)),
+        _fid: fid,
+        _rawName: item.name || `第${episodes.length + 1}集`,
+      });
+    });
+
+    if (episodes.length > 0) {
+      playSources.push({
+        name: `线路${index + 1}${line.flag ? `(${line.flag})` : ""}`,
+        episodes,
+      });
+    }
+  });
+
+  return playSources;
+}
+
+/**
+ * 解析筛选配置（来自 `top_type`）
+ * @param {Array} typeList 类型列表
+ * @returns {{ classes: Array, filters: Object }}
+ */
+function buildClassesAndFilters(typeList) {
+  const classes = [];
+  const filters = {};
+
+  (typeList || []).forEach((item) => {
+    const typeId = String(item.type_id || "");
+    if (!typeId) return;
+
+    classes.push({
+      type_id: typeId,
+      type_name: item.type_name || typeId,
+    });
+
+    const fts = [];
+
+    if (Array.isArray(item.extend) && item.extend.length > 0) {
+      const value = item.extend
+        .filter((v) => v && v !== "全部")
+        .map((v) => ({ name: v, value: v }));
+      if (value.length > 0) {
+        fts.push({ key: "class", name: "类型", init: "", value: [{ name: "全部", value: "" }, ...value] });
+      }
+    }
+
+    if (Array.isArray(item.area) && item.area.length > 0) {
+      const value = item.area
+        .filter((v) => v && v !== "全部")
+        .map((v) => ({ name: v, value: v }));
+      if (value.length > 0) {
+        fts.push({ key: "area", name: "地区", init: "", value: [{ name: "全部", value: "" }, ...value] });
+      }
+    }
+
+    if (Array.isArray(item.lang) && item.lang.length > 0) {
+      const value = item.lang
+        .filter((v) => v && v !== "全部")
+        .map((v) => ({ name: v, value: v }));
+      if (value.length > 0) {
+        fts.push({ key: "lang", name: "语言", init: "", value: [{ name: "全部", value: "" }, ...value] });
+      }
+    }
+
+    if (Array.isArray(item.year) && item.year.length > 0) {
+      const value = item.year
+        .filter((v) => v && v !== "全部")
+        .map((v) => ({ name: v, value: v }));
+      if (value.length > 0) {
+        fts.push({ key: "year", name: "年份", init: "", value: [{ name: "全部", value: "" }, ...value] });
+      }
+    }
+
+    fts.push({
+      key: "by",
+      name: "排序",
+      init: "time",
+      value: [
+        { name: "按时间", value: "time" },
+        { name: "按人气", value: "hits" },
+        { name: "按评分", value: "score" },
+      ],
+    });
+
+    if (fts.length > 0) {
+      filters[typeId] = fts;
+    }
+  });
+
+  return { classes, filters };
+}
+
+// ==================== OmniBox 标准接口实现 ====================
+/**
+ * 获取首页数据
+ * @param {Object} params 参数对象
+ * @returns {Promise<{class:Array,filters:Object,list:Array}>}
+ */
+async function home(params) {
+  try {
+    logInfo("获取首页数据");
+
+    const [typeData, homeVodData] = await Promise.all([
+      requestApi(`${HOST}/v3/type/top_type`, "POST", { "": "" }),
+      requestApi(`${HOST}/v3/type/tj_vod`, "POST", { "": "" }),
+    ]);
+
+    const { classes, filters } = buildClassesAndFilters(typeData?.data?.list || []);
+    const allVideos = [...(homeVodData?.data?.cai || []), ...(homeVodData?.data?.loop || [])];
+    const list = formatVideoList(allVideos.filter((i) => i.vod_id && String(i.vod_id) !== "0"));
+
+    return { class: classes, filters, list };
+  } catch (error) {
+    logError("获取首页数据失败", error);
+    return { class: [], filters: {}, list: [] };
+  }
+}
+
+/**
+ * 获取分类数据
+ * @param {Object} params 参数对象
+ * @returns {Promise<{list:Array,page:number,pagecount:number,limit:number,total:number}>}
+ */
+async function category(params) {
+  try {
+    const categoryId = params.categoryId;
+    const page = parseInt(params.page, 10) || 1;
+    const ext = params.filters || {};
+
+    if (!categoryId) {
+      return { list: [], page: 1, pagecount: 0, limit: 0, total: 0 };
+    }
+
+    const requestParams = {
+      type_id: categoryId,
+      limit: "12",
+      page,
+    };
+
+    for (const [k, v] of Object.entries(ext)) {
+      const key = k === "extend" ? "class" : k;
+      requestParams[key] = v;
+    }
+
+    const data = await requestApi(`${HOST}/v3/home/type_search`, "POST", requestParams);
+    const list = formatVideoList((data?.data?.list || []).filter((i) => i.vod_id && String(i.vod_id) !== "0"));
+
+    return {
+      list,
+      page,
+      pagecount: 9999,
+      limit: 90,
+      total: 999999,
+    };
+  } catch (error) {
+    logError("获取分类数据失败", error);
+    return { list: [], page: 1, pagecount: 0, limit: 0, total: 0 };
+  }
+}
+
+/**
+ * 获取视频详情
+ * @param {Object} params 参数对象
+ * @returns {Promise<{list:Array}>}
+ */
+async function detail(params) {
+  try {
+    const ids = Array.isArray(params.videoId) ? params.videoId : [params.videoId];
+    const result = [];
+
+    for (const vodId of ids) {
+      if (!vodId) continue;
+
+      const videoIdForScrape = String(vodId || "");
+      const data = await requestApi(`${HOST}/v3/home/vod_details`, "POST", { vod_id: vodId });
+      const v = data?.data;
+      if (!v) continue;
+
+      const playSources = convertVodPlayListToSources(v.vod_play_list || [], v.vod_name || "", videoIdForScrape);
+
+      let scrapeData = null;
+      let videoMappings = [];
+      let scrapeType = "";
+
+      const scrapeCandidates = [];
+      for (const source of playSources) {
+        for (const ep of source.episodes || []) {
+          if (!ep._fid) continue;
+          scrapeCandidates.push({
+            fid: ep._fid,
+            file_id: ep._fid,
+            file_name: ep._rawName || ep.name || "正片",
+            name: ep._rawName || ep.name || "正片",
+            format_type: "video",
+          });
+        }
+      }
+
+      if (scrapeCandidates.length > 0) {
+        try {
+          const scrapingResult = await OmniBox.processScraping(videoIdForScrape, v.vod_name || "", v.vod_name || "", scrapeCandidates);
+          OmniBox.log("info", `[热播] 刮削处理完成,结果: ${JSON.stringify(scrapingResult || {}).substring(0, 200)}`);
+
+          const metadata = await OmniBox.getScrapeMetadata(videoIdForScrape);
+          scrapeData = metadata?.scrapeData || null;
+          videoMappings = metadata?.videoMappings || [];
+          scrapeType = metadata?.scrapeType || "";
+          logInfo("刮削元数据读取完成", { mappingCount: videoMappings.length, hasScrapeData: !!scrapeData, scrapeType });
+        } catch (error) {
+          logError("刮削处理失败", error);
+        }
+      }
+
+      if (videoMappings.length > 0) {
+        for (const source of playSources) {
+          for (const ep of source.episodes || []) {
+            const mapping = videoMappings.find((m) => m?.fileId === ep._fid);
+            if (!mapping) continue;
+            const oldName = ep.name;
+            const newName = buildScrapedEpisodeName(scrapeData, mapping, oldName);
+            if (newName && newName !== oldName) {
+              ep.name = newName;
+              OmniBox.log("info", `[热播] 应用刮削后源文件名: ${oldName} -> ${newName}`);
+            }
+            ep._seasonNumber = mapping.seasonNumber;
+            ep._episodeNumber = mapping.episodeNumber;
+          }
+
+          const hasEpisodeNumber = (source.episodes || []).some(
+            (ep) => ep._episodeNumber !== undefined && ep._episodeNumber !== null
+          );
+          if (hasEpisodeNumber) {
+            source.episodes.sort((a, b) => {
+              const seasonA = a._seasonNumber || 0;
+              const seasonB = b._seasonNumber || 0;
+              if (seasonA !== seasonB) return seasonA - seasonB;
+              const episodeA = a._episodeNumber || 0;
+              const episodeB = b._episodeNumber || 0;
+              return episodeA - episodeB;
+            });
+          }
+        }
+      }
+
+      const normalizedPlaySources = playSources.map((source) => ({
+        name: source.name,
+        episodes: (source.episodes || []).map((ep) => ({
+          name: ep.name,
+          playId: ep.playId,
+        })),
+      }));
+
+      const vod = {
+        vod_id: videoIdForScrape,
+        vod_name: scrapeData?.title || v.vod_name || "",
+        vod_pic: scrapeData?.posterPath ? `https://image.tmdb.org/t/p/w500${scrapeData.posterPath}` : (v.vod_pic || ""),
+        type_name: v.type_name || "",
+        vod_year: scrapeData?.releaseDate ? String(scrapeData.releaseDate).substring(0, 4) : (v.vod_year || ""),
+        vod_area: v.vod_area || "",
+        vod_remarks: v.vod_remarks || "",
+        vod_actor: (scrapeData?.credits?.cast || []).slice(0, 5).map((c) => c?.name).filter(Boolean).join(",") || v.vod_actor || "",
+        vod_director:
+          (scrapeData?.credits?.crew || [])
+            .filter((c) => c?.job === "Director" || c?.department === "Directing")
+            .slice(0, 3)
+            .map((c) => c?.name)
+            .filter(Boolean)
+            .join(",") ||
+          v.vod_director ||
+          "",
+        vod_content: scrapeData?.overview || v.vod_content || "无",
+        vod_play_sources: normalizedPlaySources,
+      };
+
+      result.push(vod);
+    }
+
+    return { list: result };
+  } catch (error) {
+    logError("获取详情失败", error);
+    return { list: [] };
+  }
+}
+
+/**
+ * 搜索视频
+ * @param {Object} params 参数对象
+ * @returns {Promise<{list:Array,page:number,pagecount:number,limit:number,total:number}>}
+ */
+async function search(params) {
+  try {
+    const keyword = params.keyword || params.wd || "";
+    const page = parseInt(params.page, 10) || 1;
+
+    if (!keyword) {
+      return { list: [], page: 1, pagecount: 0, limit: 0, total: 0 };
+    }
+
+    const data = await requestApi(`${HOST}/v3/home/search`, "POST", {
+      limit: "12",
+      page,
+      keyword,
+    });
+
+    const list = formatVideoList((data?.data?.list || []).filter((i) => i.vod_id && String(i.vod_id) !== "0"));
+
+    return {
+      list,
+      page,
+      pagecount: 9999,
+      limit: list.length,
+      total: 999999,
+    };
+  } catch (error) {
+    logError("搜索失败", error);
+    return { list: [], page: 1, pagecount: 0, limit: 0, total: 0 };
+  }
+}
+
+/**
+ * 解析播放地址
+ * @param {Object} params 参数对象
+ * @returns {Promise<{urls:Array,parse:number,header:Object}>}
+ */
+async function play(params) {
+  const playId = params.playId || "";
+  if (!playId) {
+    return { urls: [], parse: 1, header: {} };
+  }
+
+  try {
+    const decoded = d64(playId);
+    const ids = JSON.parse(decoded);
+    const headers = {};
+    let vodName = ids.v || "";
+    let episodeName = ids.e || "";
+    let scrapedDanmuFileName = "";
+
+    try {
+      const videoIdFromParam = params.vodId ? String(params.vodId) : "";
+      const videoIdFromMeta = ids.sid ? String(ids.sid) : "";
+      const videoIdForScrape = videoIdFromParam || videoIdFromMeta;
+
+      if (videoIdForScrape) {
+        const metadata = await OmniBox.getScrapeMetadata(videoIdForScrape);
+        if (metadata && metadata.scrapeData) {
+          const mapping = (metadata.videoMappings || []).find((m) => m?.fileId === ids.fid);
+          scrapedDanmuFileName = buildScrapedDanmuFileName(
+            metadata.scrapeData,
+            metadata.scrapeType || "",
+            mapping,
+            vodName,
+            episodeName
+          );
+          if (metadata.scrapeData.title) {
+            vodName = metadata.scrapeData.title;
+          }
+          if (mapping?.episodeName) {
+            episodeName = mapping.episodeName;
+          }
+        }
+      }
+    } catch (error) {
+      logInfo(`读取刮削元数据失败: ${error.message}`);
+    }
+
+    let playResponse;
+
+    if (ids.r) headers.Referer = ids.r;
+    if (ids.u) headers["User-Agent"] = ids.u;
+
+    if (Array.isArray(ids.p) && ids.p.length > 0) {
+      const parseUrl = ids.p[0] + encodeURIComponent(ids.url);
+
+      try {
+        const response = await axiosInstance({
+          url: parseUrl,
+          method: "GET",
+          headers,
+          responseType: "text",
+        });
+
+        if (!response?.data) {
+          throw new Error("解析请求无响应内容");
+        }
+
+        const parseData = typeof response.data === "string" ? JSON.parse(response.data) : response.data;
+        const parsedUrl = parseData.url || parseData?.data?.url;
+
+        if (!parsedUrl) {
+          throw new Error("解析接口未返回播放地址");
+        }
+
+        if (parseData.UA) {
+          headers["User-Agent"] = parseData.UA;
+        }
+
+        playResponse = {
+          urls: [{ name: "播放", url: parsedUrl }],
+          parse: 0,
+          header: headers,
+        };
+      } catch (parseError) {
+        logError("解析接口调用失败，尝试嗅探", parseError);
+        const sniffResult = await sniffRebangPlay(ids.url || parseUrl);
+        if (sniffResult) {
+          playResponse = sniffResult;
+        } else {
+          playResponse = {
+            urls: [{ name: "解析", url: parseUrl }],
+            parse: 1,
+            header: headers,
+          };
+        }
+      }
+    } else {
+      if (ids.url && ids.url.startsWith("http")) {
+        playResponse = {
+          urls: [{ name: "直连", url: ids.url }],
+          parse: 0,
+          header: headers,
+        };
+      } else {
+        const sniffResult = await sniffRebangPlay(ids.url);
+        playResponse =
+          sniffResult ||
+          {
+            urls: [{ name: "直连", url: ids.url }],
+            parse: 0,
+            header: headers,
+          };
+      }
+    }
+
+    if (DANMU_API && vodName) {
+      const fileName = scrapedDanmuFileName || buildFileNameForDanmu(vodName, episodeName);
+      if (fileName) {
+        const danmakuList = await matchDanmu(fileName);
+        if (danmakuList.length > 0) {
+          playResponse.danmaku = danmakuList;
+        }
+      }
+    }
+
+    return playResponse;
+  } catch (error) {
+    logError("播放解析失败", error);
+    const fallbackSniff = await sniffRebangPlay(playId);
+    if (fallbackSniff) {
+      return fallbackSniff;
+    }
+    return {
+      urls: [{ name: "回退", url: playId }],
+      parse: 1,
+      header: {},
+    };
+  }
+}
+
+// ==================== 模块导出 ====================
+module.exports = {
+  home,
+  category,
+  search,
+  detail,
+  play,
+};
+
+// 使用公共 runner 处理标准输入/输出
+const runner = require("spider_runner");
+runner.run(module.exports);
+
+
+});
+
+_load(12, "电影天堂", function (module, exports, require) {
 // @name 电影天堂
 // @author 
 // @description 刮削：支持，弹幕：支持，嗅探：支持
@@ -8109,584 +10690,6 @@ async function play(params) {
         OmniBox.log("error", `获取播放地址失败: ${error.message}`);
         return { urls: [], header: {} };
     }
-}
-
-});
-
-_load(10, "金牌", function (module, exports, require) {
-// @name 金牌
-// @author 梦
-// @description API 站：https://m.jiabaide.cn，支持首页、分类、搜索、详情与播放解析
-// @version 1.1.4
-// @downloadURL https://gh-proxy.org/https://github.com/Silent1566/OmniBox-Spider/raw/refs/heads/main/影视/采集/金牌.js
-// @dependencies crypto-js
-
-const OmniBox = require("omnibox_sdk");
-const runner = require("spider_runner");
-const CryptoJS = require("crypto-js");
-
-const BASE_URL = process.env.JINPAI_HOST || "https://m.jiabaide.cn";
-const MOBILE_UA = "Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.91 Mobile Safari/537.36";
-const APP_KEY = process.env.JINPAI_APP_KEY || "cb808529bae6b6be45ecfab29a4889bc";
-const BASE_HEADERS = { "User-Agent": MOBILE_UA, Referer: `${BASE_URL}/` };
-
-module.exports = { home, category, detail, search, play };
-runner.run(module.exports);
-
-const CLASS_NAME_MAP = {
-  typeList: ["type", "类型"],
-  plotList: ["class", "剧情"],
-  districtList: ["area", "地区"],
-  languageList: ["lang", "语言"],
-  yearList: ["year", "年份"],
-  serialList: ["by", "排序"],
-};
-
-const SORT_VALUES = [
-  { name: "最近更新", value: "1" },
-  { name: "添加时间", value: "2" },
-  { name: "人气高低", value: "3" },
-  { name: "评分高低", value: "4" },
-];
-
-function getBodyText(res) {
-  const body = res && typeof res === "object" && "body" in res ? res.body : res;
-  if (Buffer.isBuffer(body) || body instanceof Uint8Array) return body.toString();
-  return String(body || "");
-}
-
-function text(value) {
-  return String(value == null ? "" : value).trim();
-}
-
-function stripHtml(value) {
-  return text(value).replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
-}
-
-function objToForm(obj = {}) {
-  return Object.entries(obj)
-    .filter(([, v]) => v !== undefined && v !== null && v !== "")
-    .map(([k, v]) => `${k}=${v}`)
-    .join("&");
-}
-
-function getSignedHeaders(obj = {}) {
-  const t = String(Date.now());
-  const signObj = { ...obj, key: APP_KEY, t };
-  const objStr = objToForm(signObj);
-  const md5 = CryptoJS.MD5(objStr).toString();
-  const sign = CryptoJS.SHA1(md5).toString();
-  return {
-    ...BASE_HEADERS,
-    t,
-    sign,
-  };
-}
-
-async function fetchJson(path, params = {}) {
-  const qs = objToForm(params);
-  const url = `${BASE_URL}${path}${qs ? `?${qs}` : ""}`;
-  const headers = getSignedHeaders(params);
-  await OmniBox.log("info", `[金牌][request] ${url}`);
-  const res = await OmniBox.request(url, {
-    method: "GET",
-    headers,
-    timeout: 20000,
-  });
-  if (!res || Number(res.statusCode) < 200 || Number(res.statusCode) >= 400) {
-    throw new Error(`HTTP ${res?.statusCode || "unknown"} @ ${url}`);
-  }
-  const textBody = getBodyText(res);
-  const data = JSON.parse(textBody || "{}");
-  if (Number(data.code) && Number(data.code) !== 200) {
-    throw new Error(data.msg || `API code=${data.code}`);
-  }
-  return data;
-}
-
-function mapVod(v = {}) {
-  const pubdate = String(v.vodPubdate || "");
-  const year = pubdate ? pubdate.split("-")[0] : "";
-  return {
-    vod_id: String(v.vodId || ""),
-    vod_name: String(v.vodName || ""),
-    vod_pic: String(v.vodPic || ""),
-    vod_remarks: [String(v.vodRemarks || "").trim(), String(v.vodDoubanScore || "").trim()].filter(Boolean).join("_"),
-    vod_year: year,
-    type_id: String(v.typeId || ""),
-    type_name: String(v.typeName || ""),
-  };
-}
-
-function buildEpisodePlayId({ vodId = "", nid = "", episodeName = "", sourceName = "", title = "" } = {}) {
-  return JSON.stringify({
-    vodId: text(vodId),
-    nid: text(nid),
-    episodeName: text(episodeName),
-    sourceName: text(sourceName),
-    title: text(title),
-  });
-}
-
-function parseEpisodePlayId(value = "") {
-  const raw = text(value);
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === "object") {
-      return {
-        vodId: text(parsed.vodId),
-        nid: text(parsed.nid),
-        episodeName: text(parsed.episodeName),
-        sourceName: text(parsed.sourceName),
-        title: text(parsed.title),
-      };
-    }
-  } catch (_) {}
-
-  const legacy = raw.match(/^(.*?)@(.*)$/);
-  if (legacy) {
-    return {
-      vodId: text(legacy[1]),
-      nid: text(legacy[2]),
-      episodeName: "",
-      sourceName: "金牌线路",
-      title: "",
-    };
-  }
-  return null;
-}
-
-function buildScrapeCandidate(episode = {}, vodName = "", vodId = "") {
-  const rawName = text(episode.name || episode.episodeName || episode.vodRemarks || "");
-  const fileId = text(episode.nid || episode.episodeId || episode.id || "");
-  return {
-    fid: fileId,
-    name: rawName || `${text(vodName) || "金牌资源"}_${fileId || text(vodId || "")}`,
-    file_name: rawName || `${text(vodName) || "金牌资源"}_${fileId || text(vodId || "")}`,
-    file_size: 0,
-    file_id: fileId,
-    format_type: "video",
-  };
-}
-
-function normalizeMappingFileId(value = "") {
-  const raw = text(value);
-  if (!raw) return "";
-  const parts = raw.split("|").map((item) => text(item)).filter(Boolean);
-  if (parts.length === 0) return raw;
-  return parts[parts.length - 1];
-}
-
-function findEpisodeMapping(mappings = [], candidates = []) {
-  const expected = Array.isArray(candidates)
-    ? candidates.map((item) => text(item)).filter(Boolean)
-    : [text(candidates)].filter(Boolean);
-  if (!expected.length || !Array.isArray(mappings) || mappings.length === 0) return null;
-  return mappings.find((mapping) => {
-    const rawFileId = text(mapping?.fileId || "");
-    const normalizedFileId = normalizeMappingFileId(rawFileId);
-    return expected.includes(rawFileId) || expected.includes(normalizedFileId);
-  }) || null;
-}
-
-function buildMappingPreview(mappings = [], limit = 5) {
-  if (!Array.isArray(mappings) || mappings.length === 0) return "";
-  return mappings
-    .slice(0, limit)
-    .map((mapping) => `${text(mapping?.fileId || "<empty>")}=>${text(mapping?.episodeName || mapping?.episodeNumber || "")}`)
-    .join("; ");
-}
-
-function pickEpisodeNumber(...values) {
-  for (const value of values) {
-    if (Number.isFinite(value) && value > 0) return value;
-    const raw = text(value);
-    if (!raw) continue;
-    const direct = Number(raw);
-    if (Number.isFinite(direct) && direct > 0) return direct;
-    const match = raw.match(/^(?:第\s*)?(\d+)\s*(?:集|话|期)?(?:[\s.、:_-].*)?$/);
-    if (match) {
-      const parsed = Number(match[1]);
-      if (Number.isFinite(parsed) && parsed > 0) return parsed;
-    }
-  }
-  return null;
-}
-
-function formatEpisodeDisplayName(name = "", episodeNumber = null) {
-  const rawName = text(name);
-  const prefixed = rawName.match(/^(?:第\s*(\d+)\s*(?:集|话|期)\s*|(\d+)\s*[.、:_-]\s*)(.*)$/);
-  const prefixedNumber = prefixed ? Number(prefixed[1] || prefixed[2]) : null;
-  const finalNumber = Number.isFinite(episodeNumber) && episodeNumber > 0 ? episodeNumber : prefixedNumber;
-  const episodeName = prefixed ? text(prefixed[3]) : rawName;
-
-  if (!finalNumber) {
-    return episodeName;
-  }
-  if (!episodeName) {
-    return `第${finalNumber}集`;
-  }
-  return `第${finalNumber}集 ${episodeName}`;
-}
-
-function summarizeScrapeCandidates(candidates = [], limit = 5) {
-  if (!Array.isArray(candidates) || candidates.length === 0) return "";
-  return candidates
-    .slice(0, limit)
-    .map((item) => `${text(item?.file_id || item?.fid || "<empty>")}=>${text(item?.file_name || item?.name || "")}`)
-    .join("; ");
-}
-
-function pickScrapeTitle(metadata = {}, fallbackVodName = "") {
-  const scrapeData = metadata?.scrapeData || null;
-  return text(scrapeData?.title || fallbackVodName);
-}
-
-function pickScrapePic(metadata = {}, fallbackPic = "") {
-  const posterPath = text(metadata?.scrapeData?.posterPath || "");
-  return posterPath ? `https://image.tmdb.org/t/p/w500${posterPath}` : text(fallbackPic);
-}
-
-function buildDanmakuFileName(metadata = {}, episodeMeta = {}, fallbackVodName = "") {
-  const scrapeData = metadata?.scrapeData || null;
-  const mapping = episodeMeta?.mapping || null;
-  const episodeName = text(episodeMeta?.episodeName || mapping?.episodeName || "");
-  const episodeNumber = Number.isFinite(mapping?.episodeNumber) ? mapping.episodeNumber : null;
-  const seasonNumber = Number.isFinite(mapping?.seasonNumber) ? mapping.seasonNumber : 1;
-  const scrapeType = text(metadata?.scrapeType || "").toLowerCase();
-  const title = text(scrapeData?.title || fallbackVodName || episodeMeta?.title || "");
-  const seasonAirYear = text(scrapeData?.seasonAirYear || scrapeData?.releaseDate || "").slice(0, 4);
-
-  if (!title) return episodeName;
-  if (scrapeType === "movie") return title;
-  if (episodeNumber != null) {
-    return `${title}.${seasonAirYear || ""}.S${String(seasonNumber || 1).padStart(2, "0")}E${String(episodeNumber).padStart(2, "0")}`.replace(/\.\.*/g, (match) => match.replace(/^\.+/, "."));
-  }
-  return episodeName ? `${title}.${episodeName}` : title;
-}
-
-function buildPlaybackUrlEntry(item = {}) {
-  const url = text(item.url);
-  if (!url) return null;
-  return {
-    name: text(item.name || item.resolution || item.title || "播放"),
-    url,
-  };
-}
-
-async function buildFilters() {
-  const classes = [];
-  const filters = {};
-
-  const typeRes = await fetchJson("/api/mw-movie/anonymous/get/filer/type");
-  const typeObj = typeRes.data || [];
-  for (const item of typeObj) {
-    classes.push({
-      type_id: String(item.typeId),
-      type_name: String(item.typeName),
-    });
-  }
-
-  const filterRes = await fetchJson("/api/mw-movie/anonymous/v1/get/filer/list");
-  const fDataObj = filterRes.data || {};
-
-  for (const cls of classes) {
-    const tid = cls.type_id;
-    filters[tid] = [];
-
-    for (const [rawKey, [key, name]] of Object.entries(CLASS_NAME_MAP)) {
-      const values = [{ name: "全部", value: "" }];
-      if (rawKey === "serialList") {
-        values.push(...SORT_VALUES);
-      } else {
-        const items = (((fDataObj || {})[tid] || {})[rawKey]) || [];
-        for (const it of items) {
-          if (rawKey === "typeList") {
-            values.push({ name: String(it.itemText || ""), value: String(it.itemValue || "") });
-          } else {
-            values.push({ name: String(it.itemText || ""), value: String(it.itemText || "") });
-          }
-        }
-      }
-      if (values.length > 1) {
-        filters[tid].push({ key, name, value: values });
-      }
-    }
-  }
-
-  return { classes, filters };
-}
-
-async function home(params, context) {
-  try {
-    const { classes, filters } = await buildFilters();
-    const homeRes = await fetchJson("/api/mw-movie/anonymous/home/hotSearch");
-    const list = Array.isArray(homeRes.data) ? homeRes.data.map(mapVod) : [];
-    await OmniBox.log("info", `[金牌][home] class=${classes.length} list=${list.length}`);
-    return { class: classes, filters, list };
-  } catch (e) {
-    await OmniBox.log("error", `[金牌][home] ${e.message}`);
-    return { class: [], filters: {}, list: [] };
-  }
-}
-
-async function category(params, context) {
-  try {
-    const tid = String(params.categoryId || params.type_id || "1");
-    const page = Math.max(1, parseInt(params.page || 1, 10));
-    const f = params.filters || {};
-    const body = {
-      area: f.area || "",
-      lang: f.lang || "",
-      pageNum: String(page),
-      pageSize: "30",
-      sort: f.by || "1",
-      sortBy: "1",
-      type: f.type || "",
-      type1: tid,
-      v_class: f.class || "",
-      year: f.year || "",
-    };
-    const res = await fetchJson("/api/mw-movie/anonymous/video/list", body);
-    const list = (((res || {}).data || {}).list || []).map(mapVod);
-    await OmniBox.log("info", `[金牌][category] tid=${tid} page=${page} list=${list.length}`);
-    return {
-      page,
-      pagecount: page + (list.length >= 30 ? 1 : 0),
-      total: page * 30 + (list.length >= 30 ? 1 : 0),
-      list,
-    };
-  } catch (e) {
-    await OmniBox.log("error", `[金牌][category] ${e.message}`);
-    return { page: 1, pagecount: 0, total: 0, list: [] };
-  }
-}
-
-async function detail(params, context) {
-  try {
-    const id = text(params.videoId || params.id || "");
-    if (!id) return { list: [] };
-
-    const res = await fetchJson("/api/mw-movie/anonymous/video/detail", { id });
-    const kvod = res.data || {};
-    if (!Object.keys(kvod).length) return { list: [] };
-
-    const kid = text(kvod.vodId || id);
-    const sourceName = text(kvod.sourceName || "金牌线路");
-    const rawEpisodeList = Array.isArray(kvod.episodeList) ? kvod.episodeList : [];
-    const scrapeCandidates = rawEpisodeList.map((it) => buildScrapeCandidate(it, kvod.vodName, kid)).filter((it) => text(it.file_name));
-
-    let scrapeMetadata = null;
-    if (scrapeCandidates.length > 0) {
-      await OmniBox.log("info", `[金牌][detail] 开始统一刮削 kid=${kid} candidates=${scrapeCandidates.length} preview=${summarizeScrapeCandidates(scrapeCandidates) || "<empty>"}`);
-      try {
-        const scrapeResult = await OmniBox.processScraping(kid, text(kvod.vodName), text(kvod.vodName), scrapeCandidates);
-        await OmniBox.log("info", `[金牌][detail] processScraping 完成 kid=${kid} result=${JSON.stringify(scrapeResult || {}).slice(0, 300)}`);
-        scrapeMetadata = await OmniBox.getScrapeMetadata(kid);
-        await OmniBox.log("info", `[金牌][detail] 读取刮削元数据完成 kid=${kid} hasScrapeData=${!!scrapeMetadata?.scrapeData} mappings=${Array.isArray(scrapeMetadata?.videoMappings) ? scrapeMetadata.videoMappings.length : 0}`);
-      } catch (error) {
-        await OmniBox.log("warn", `[金牌][detail] 刮削失败 kid=${kid} error=${error.message}`);
-      }
-    } else {
-      await OmniBox.log("warn", `[金牌][detail] 未提取到可刮削分集 kid=${kid}`);
-    }
-
-    const mappings = Array.isArray(scrapeMetadata?.videoMappings) ? scrapeMetadata.videoMappings : [];
-    await OmniBox.log("info", `[金牌][detail] mappingPreview kid=${kid} preview=${buildMappingPreview(mappings) || "<empty>"}`);
-    const episodes = rawEpisodeList.map((it, index) => {
-      const nid = text(it.nid);
-      const mapping = findEpisodeMapping(mappings, [nid]);
-      const episodeNumber = pickEpisodeNumber(mapping?.episodeNumber, it.episodeNumber, it.name, index + 1);
-      const episodeName = formatEpisodeDisplayName(mapping?.episodeName || it.name || `第${episodeNumber || nid || "1"}集`, episodeNumber);
-      return {
-        name: episodeName,
-        playId: buildEpisodePlayId({
-          vodId: kid,
-          nid,
-          episodeName,
-          sourceName,
-          title: text(kvod.vodName),
-        }),
-      };
-    }).filter((it) => text(it.playId));
-
-    const scrapeTitle = pickScrapeTitle(scrapeMetadata, kvod.vodName);
-    const scrapePic = pickScrapePic(scrapeMetadata, kvod.vodPic);
-    const scrapeContent = stripHtml(scrapeMetadata?.scrapeData?.overview || kvod.vodContent || "简介");
-    const scrapeYear = text((scrapeMetadata?.scrapeData?.releaseDate || kvod.vodYear || "").slice?.(0, 4) || kvod.vodYear || "");
-    const scrapeActors = text(
-      kvod.vodActor || scrapeMetadata?.scrapeData?.credits?.cast?.slice?.(0, 8).map?.((x) => x.name).join(",") || "主演"
-    );
-    const scrapeDirector = text(
-      kvod.vodDirector || scrapeMetadata?.scrapeData?.credits?.crew?.filter?.((x) => x.job === "Director").map?.((x) => x.name).join(",") || "导演"
-    );
-
-    await OmniBox.log("info", `[金牌][detail] kid=${kid} finalEpisodes=${episodes.length} hasScrape=${!!scrapeMetadata?.scrapeData}`);
-
-    return {
-      list: [{
-        vod_id: kid,
-        vod_name: scrapeTitle || text(kvod.vodName),
-        vod_pic: scrapePic,
-        type_name: text(kvod.vodClass || "类型"),
-        vod_remarks: text(kvod.vodRemarks || "状态"),
-        vod_year: scrapeYear || text(kvod.vodYear || "0000"),
-        vod_area: text(kvod.vodArea || "地区"),
-        vod_lang: text(kvod.vodLang || "语言"),
-        vod_director: scrapeDirector,
-        vod_actor: scrapeActors,
-        vod_content: scrapeContent,
-        vod_play_sources: episodes.length ? [{ name: sourceName, episodes }] : [],
-      }],
-    };
-  } catch (e) {
-    await OmniBox.log("error", `[金牌][detail] ${e.message}`);
-    return { list: [] };
-  }
-}
-
-async function search(params, context) {
-  try {
-    const keyword = String(params.keyword || params.wd || params.key || "").trim();
-    const page = Math.max(1, parseInt(params.page || 1, 10));
-    if (!keyword) return { page, pagecount: 0, total: 0, list: [] };
-
-    const body = { keyword, pageNum: String(page), pageSize: "30" };
-    const res = await fetchJson("/api/mw-movie/anonymous/video/searchByWordPageable", body);
-    const list = (((res || {}).data || {}).list || []).map(mapVod);
-    await OmniBox.log("info", `[金牌][search] keyword=${keyword} page=${page} list=${list.length}`);
-    return {
-      page,
-      pagecount: page + (list.length >= 30 ? 1 : 0),
-      total: page * 30 + (list.length >= 30 ? 1 : 0),
-      list,
-    };
-  } catch (e) {
-    await OmniBox.log("error", `[金牌][search] ${e.message}`);
-    return { page: 1, pagecount: 0, total: 0, list: [] };
-  }
-}
-
-async function play(params, context) {
-  try {
-    const flag = text(params.flag || "");
-    const rawPlayId = text(params.playId || params.id || "");
-    const playMeta = parseEpisodePlayId(rawPlayId);
-    if (!playMeta?.vodId || !playMeta?.nid) {
-      throw new Error("播放参数格式错误，期望包含 vodId 与 nid");
-    }
-
-    const sid = playMeta.vodId;
-    const nid = playMeta.nid;
-    const episodeName = text(playMeta.episodeName || params.episodeName || "");
-    const title = text(playMeta.title || params.title || "");
-    const body = { clientType: "3", id: sid, nid };
-
-    await OmniBox.log("info", `[金牌][play] start sid=${sid} nid=${nid} title=${title} episode=${episodeName}`);
-
-    const playInfoPromise = fetchJson("/api/mw-movie/anonymous/v2/video/episode/url", body);
-    const metadataPromise = (async () => {
-      const result = {
-        danmakuList: [],
-        scrapeTitle: "",
-        scrapePic: "",
-        mapping: null,
-      };
-      try {
-        const metadata = await OmniBox.getScrapeMetadata(sid);
-        const mappings = Array.isArray(metadata?.videoMappings) ? metadata.videoMappings : [];
-        const mapping = findEpisodeMapping(mappings, [nid, `${sid}|${nid}`]);
-        result.mapping = mapping;
-        result.scrapeTitle = pickScrapeTitle(metadata, title);
-        result.scrapePic = pickScrapePic(metadata, "");
-        await OmniBox.log("info", `[金牌][play] 元数据读取完成 sid=${sid} mappings=${mappings.length} matched=${!!mapping} expected=${nid} preview=${buildMappingPreview(mappings) || "<empty>"}`);
-        if (!mapping && mappings.length > 0) {
-          await OmniBox.log("info", `[金牌][play] 首条映射原始数据 sample=${JSON.stringify(mappings.slice(0, 2)).slice(0, 400)}`);
-        }
-        const fileName = buildDanmakuFileName(metadata, { mapping, episodeName, title }, title);
-        await OmniBox.log("info", `[金牌][play] 弹幕匹配文件名 fileName=${fileName}`);
-        if (fileName) {
-          const matchedDanmaku = await OmniBox.getDanmakuByFileName(fileName);
-          result.danmakuList = Array.isArray(matchedDanmaku) ? matchedDanmaku : [];
-          await OmniBox.log("info", `[金牌][play] 弹幕匹配完成 count=${result.danmakuList.length}`);
-        }
-      } catch (error) {
-        await OmniBox.log("warn", `[金牌][play] 元数据/弹幕链路失败: ${error.message}`);
-      }
-      return result;
-    })();
-
-    const [playInfoResult, metadataResult] = await Promise.allSettled([playInfoPromise, metadataPromise]);
-    if (playInfoResult.status !== "fulfilled") {
-      throw new Error(playInfoResult.reason?.message || "无法获取播放地址");
-    }
-
-    const playData = playInfoResult.value;
-    const list = (((playData || {}).data || {}).list || []);
-    const urls = list.map(buildPlaybackUrlEntry).filter(Boolean);
-    if (!urls.length) {
-      throw new Error("播放接口未返回有效地址");
-    }
-
-    let danmakuList = [];
-    let scrapeTitle = title;
-    let scrapePic = "";
-    let mapping = null;
-    if (metadataResult.status === "fulfilled" && metadataResult.value) {
-      danmakuList = metadataResult.value.danmakuList || [];
-      scrapeTitle = text(metadataResult.value.scrapeTitle || title);
-      scrapePic = text(metadataResult.value.scrapePic || "");
-      mapping = metadataResult.value.mapping || null;
-    } else if (metadataResult.status === "rejected") {
-      await OmniBox.log("warn", `[金牌][play] metadataPromise rejected: ${metadataResult.reason?.message || metadataResult.reason}`);
-    }
-
-    const header = { "User-Agent": MOBILE_UA };
-    const historyEpisodeNumber = pickEpisodeNumber(mapping?.episodeNumber, episodeName);
-    const historyEpisodeName = formatEpisodeDisplayName(mapping?.episodeName || episodeName, historyEpisodeNumber);
-    const historyPayload = {
-      vodId: sid,
-      title: scrapeTitle || title || sid,
-      pic: scrapePic || undefined,
-      episode: rawPlayId,
-      sourceId: context?.sourceId,
-      episodeNumber: historyEpisodeNumber || undefined,
-      episodeName: text(historyEpisodeName || undefined),
-      playUrl: urls[0]?.url || "",
-      playHeader: header,
-    };
-
-    try {
-      if (historyPayload.sourceId && typeof OmniBox.addPlayHistory === "function") {
-        OmniBox.addPlayHistory(historyPayload)
-          .then((added) => {
-            if (added) {
-              OmniBox.log("info", `[金牌][play] 播放记录写入成功 sid=${sid} episode=${historyPayload.episodeName || ""}`);
-            } else {
-              OmniBox.log("info", `[金牌][play] 播放记录已存在 sid=${sid} episode=${historyPayload.episodeName || ""}`);
-            }
-          })
-          .catch((error) => {
-            OmniBox.log("warn", `[金牌][play] 播放记录写入失败: ${error.message}`);
-          });
-      } else {
-        await OmniBox.log("info", `[金牌][play] 跳过播放记录 sourceId=${historyPayload.sourceId || ""} hasApi=${typeof OmniBox.addPlayHistory === "function"}`);
-      }
-    } catch (error) {
-      await OmniBox.log("warn", `[金牌][play] 启动异步播放记录失败: ${error.message}`);
-    }
-
-    await OmniBox.log("info", `[金牌][play] success sid=${sid} nid=${nid} urls=${urls.length} danmaku=${danmakuList.length}`);
-    return {
-      parse: 0,
-      urls,
-      header,
-      danmaku: danmakuList};
-  } catch (e) {
-    await OmniBox.log("error", `[金牌][play] ${e.message}`);
-    return { parse: 0, urls: [], header: {}, danmaku: [] };
-  }
 }
 
 });

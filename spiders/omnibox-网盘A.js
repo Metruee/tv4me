@@ -1,5 +1,5 @@
 // @name 网盘影视A(合并6源)
-// @version 2.20261030.1
+// @version 2.20261030.3
 // @description 自动同步：网盘聚合
 // @downloadURL https://gh-proxy.com/https://raw.githubusercontent.com/Metruee/tv4me/main/spiders/omnibox-网盘A.js
 // @dependencies axios,cheerio,crypto-js

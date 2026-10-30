@@ -1,5 +1,5 @@
 // @name 短剧聚合(合并)
-// @version 2.20261030.1
+// @version 2.20261030.3
 // @description 自动同步：短剧
 // @downloadURL https://gh-proxy.com/https://raw.githubusercontent.com/Metruee/tv4me/main/spiders/omnibox-短剧.js
 // @dependencies axios,cheerio,crypto-js
