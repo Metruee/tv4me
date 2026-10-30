@@ -22,6 +22,8 @@ jobs:
       - name: 安装运行时依赖
         run: cd scripts && npm install --no-audit --no-fund axios cheerio crypto-js
       - name: 同步上游并重新生成
+        env:
+          MAX_KB: "200"
         run: python3 scripts/sync_upstream.py
       - name: 提交
         run: |

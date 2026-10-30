@@ -1,5 +1,5 @@
 // @name 教育(合并)
-// @version 2.20261030.3
+// @version 3.20261030.1219
 // @description 自动同步：纯教育
 // @downloadURL https://gh-proxy.com/https://raw.githubusercontent.com/Metruee/tv4me/main/spiders/omnibox-教育.js
 // @dependencies axios,cheerio,crypto-js

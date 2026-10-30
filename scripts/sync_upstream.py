@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""拉取 Silent1566/OmniBox-Spider -> 逐个实跑验活 -> 按分类重新合并 -> 版本号自增。
+"""拉取 Silent1566/OmniBox-Spider -> 逐个实跑验活 -> 去重 -> 按体积分片 -> 版本自增。
 
-两处稳健性设计：
-1. 并发验活（8 线程），避免 Actions 上串行跑 9 分钟；
-2. 容错计数 config/health.json：某源连续失败 <=2 次仍保留（防网络抖动误删好源），
-   连续失败 3 次才剔除。
+设计要点：
+1. 并发验活（8 线程）；
+2. 排除非点播源目录（模板/拦截器/定时任务/Emby/直播/流媒体/已失效待修复/配置/tests）；
+3. 去重：内容 SHA256 + 归一化站名（同站点不同实现只留体积最大的一个）；
+4. 分片：单文件不超过 MAX_KB（默认 200KB），避免 OmniBox 加载/保存超时；
+5. 容错：连续失败 <=2 次且上一版收录过的仍保留（config/health.json）。
 """
-import os, sys, json, tarfile, shutil, tempfile, subprocess, datetime, urllib.request
+import os, sys, json, tarfile, shutil, tempfile, subprocess, datetime, hashlib, re, urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -16,10 +18,11 @@ TAR = "https://gh-proxy.com/https://codeload.github.com/%s/tar.gz/refs/heads/mai
 HEALTH = os.path.join(ROOT, "config", "health.json")
 CFG = os.path.join(ROOT, "config", "merged.json")
 GRACE = 2
-SITE_GROUPS = [
-    ("影视采集%s(合并%d源)", "自动同步：采集聚合", ["影视/采集/", "影视/解析/"], 3, "采集"),
-    ("网盘影视%s(合并%d源)", "自动同步：网盘聚合", ["影视/网盘/"], 2, "网盘"),
-]
+MAX_KB = int(os.environ.get("MAX_KB", "200"))
+
+EXCLUDE = {"tests", ".github", "模板", "拦截器", "定时任务", "Emby", "直播", "流媒体",
+           "已失效待修复", "配置", "node_modules"}
+
 EXTRA_GROUPS = [
     ("短剧聚合(合并)", "自动同步：短剧", ["短剧/"]),
     ("音乐听书聚合(合并)", "自动同步：音乐听书", ["音乐/", "听书/"]),
@@ -27,6 +30,9 @@ EXTRA_GROUPS = [
     ("动漫(合并)", "自动同步：动漫", ["动漫/"]),
     ("综合导航(合并)", "自动同步：综合导航", ["综合/", "导航/"]),
 ]
+
+def letter(i):
+    return chr(ord("A") + i) if i < 26 else "Z%d" % i
 
 def fetch(url, path):
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
@@ -44,39 +50,63 @@ def verify(workdir, relpath):
     except Exception:
         return False
 
-def balanced(files, n, root=""):
-    items = sorted(((os.path.getsize(os.path.join(root, f)), f) for f in files), reverse=True)
-    gs = [[] for _ in range(n)]; sz = [0] * n
-    for s, f in items:
-        i = sz.index(min(sz)); gs[i].append(f); sz[i] += s
-    return [sorted(g) for g in gs]
+def norm_name(rel):
+    s = re.sub(r"\.js$", "", os.path.basename(rel))
+    s = re.sub(r"[\U0001F300-\U0001FAFF\u2600-\u27BF]", "", s)
+    s = re.sub(r"[\[\]()（）【】\s_\-—·•]", "", s)
+    for w in ("资源站", "资源", "影视", "采集", "网盘", "直连", "点播", "线路", "专线", "官方", "备用"):
+        s = s.replace(w, "")
+    return s.lower()
+
+def dedupe(files, root):
+    seen_hash, seen_name, out = set(), set(), []
+    for f in sorted(files, key=lambda x: -os.path.getsize(os.path.join(root, x))):
+        h = hashlib.sha256(open(os.path.join(root, f), "rb").read()).hexdigest()
+        n = norm_name(f)
+        if h in seen_hash or n in seen_name:
+            print("      × 去重：%s" % f, flush=True)
+            continue
+        seen_hash.add(h); seen_name.add(n); out.append(f)
+    return sorted(out)
+
+def chunk_by_size(files, root, cap_kb):
+    items = sorted(files, key=lambda f: -os.path.getsize(os.path.join(root, f)))
+    out, cur, size = [], [], 0
+    for f in items:
+        s = os.path.getsize(os.path.join(root, f))
+        if cur and size + s > cap_kb * 1024:
+            out.append(cur); cur, size = [], 0
+        cur.append(f); size += s
+    if cur:
+        out.append(cur)
+    return [sorted(c) for c in out]
 
 def main():
     tmp = tempfile.mkdtemp(prefix="obspider-")
     tar = os.path.join(tmp, "s.tar.gz")
-    print("[1/5] 下载上游 ...", flush=True)
+    print("[1/6] 下载上游 ...", flush=True)
     fetch(TAR, tar)
     with tarfile.open(tar) as t:
         t.extractall(tmp)
     work = [os.path.join(tmp, d) for d in os.listdir(tmp) if os.path.isdir(os.path.join(tmp, d))][0]
-    print("[2/5] 解包到", work, flush=True)
+    print("[2/6] 解包到", work, flush=True)
 
     files = []
     for dp, dn, fn in os.walk(work):
-        if "/tests" in dp or "/.github" in dp:
+        rel_dir = os.path.relpath(dp, work)
+        if any(p in EXCLUDE for p in rel_dir.split(os.sep)):
             continue
         for f in fn:
             if f.endswith(".js"):
                 files.append(os.path.relpath(os.path.join(dp, f), work))
     files = sorted(files)
-    print("      检测 %d 个源（8 线程）..." % len(files), flush=True)
+    print("      检测 %d 个源（8 线程，单文件上限 %dKB）..." % (len(files), MAX_KB), flush=True)
 
     with ThreadPoolExecutor(max_workers=8) as ex:
         results = list(ex.map(lambda f: verify(work, f), files))
     raw_ok = {f for f, r in zip(files, results) if r}
-    print("[3/5] 实测可用 %d / %d" % (len(raw_ok), len(files)), flush=True)
+    print("[3/6] 实测可用 %d / %d" % (len(raw_ok), len(files)), flush=True)
 
-    # 容错：连续失败不超过 GRACE 次、且上一版收录过的，继续保留
     health = json.load(open(HEALTH, encoding="utf-8")) if os.path.exists(HEALTH) else {}
     prev = set()
     if os.path.exists(CFG):
@@ -95,22 +125,23 @@ def main():
                 ok.append(f)
                 print("      ~ 保留（连续第 %d 次失败）：%s" % (c, f), flush=True)
     json.dump(new_health, open(HEALTH, "w", encoding="utf-8"), ensure_ascii=False, indent=0, sort_keys=True)
-    print("      最终收录 %d 个" % len(ok), flush=True)
+    print("      最终候选 %d 个" % len(ok), flush=True)
 
     def pick(prefixes):
         return [f for f in ok if f.startswith(tuple(prefixes))]
 
+    print("[4/6] 整体去重 + 按体积分片 ...", flush=True)
     groups = []
-    for name, desc, prefixes, n, base in SITE_GROUPS:
-        parts = balanced(pick(prefixes), n, work)
-        for idx, g in enumerate(parts):
-            groups.append((name % ("ABC"[:n][idx], len(g)), desc, g, base + "ABC"[:n][idx]))
+    for label, base, prefixes in (("影视采集", "采集", ["影视/采集/", "影视/解析/"]),
+                                  ("网盘影视", "网盘", ["影视/网盘/"])):
+        pool = dedupe(pick(prefixes), work)
+        for i, g in enumerate(chunk_by_size(pool, work, MAX_KB)):
+            groups.append(("%s%s(合并%d源)" % (label, letter(i), len(g)), "自动同步：" + base + "聚合", g, base + letter(i)))
     for name, desc, prefixes in EXTRA_GROUPS:
-        groups.append((name, desc, pick(prefixes), name.split("(")[0]
-                       .replace("短剧聚合", "短剧").replace("音乐听书聚合", "音乐听书")))
+        groups.append((name, desc, pick(prefixes),
+                       name.split("(")[0].replace("短剧聚合", "短剧").replace("音乐听书聚合", "音乐听书")))
 
-    run = os.environ.get("GITHUB_RUN_NUMBER", "1")
-    ver = "2.%s.%s" % (datetime.datetime.utcnow().strftime("%Y%m%d"), run)
+    ver = "3.%s" % datetime.datetime.utcnow().strftime("%Y%m%d.%H%M")
     cfg = []
     for name, desc, fs, base in groups:
         if not fs:
@@ -124,12 +155,12 @@ def main():
 
     sys.path.insert(0, HERE)
     import build_merged
-    print("[4/5] 重新生成 ...", flush=True)
+    print("[5/6] 重新生成 ...", flush=True)
     for e in cfg:
         out, n, k = build_merged.build(e, work, ROOT)
-        print("      %-44s %2d 源  %.0f KB" % (out, k, n / 1024))
+        print("      %-46s %2d 源  %.0f KB" % (out, k, n / 1024))
     shutil.rmtree(tmp, ignore_errors=True)
-    print("[5/5] 完成，版本 %s" % ver, flush=True)
+    print("[6/6] 完成，版本 %s" % ver, flush=True)
 
 if __name__ == "__main__":
     main()
