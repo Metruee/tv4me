@@ -11,11 +11,11 @@ tv4me/
 ├── spiders/                    # 生成的爬虫源（OmniBox 导入/更新用）
 ├── config/
 │   ├── merged.json             # 上游分组（自动生成，勿手改）
-│   ├── static.json             # 固定站点清单（18禁 / JE668）
+│   ├── static.json             # 固定站点清单（）
 │   └── health.json             # 每个源的连续失败计数（容错用）
 ├── scripts/
 │   ├── build_merged.py         # 合并器：多源 → 一个蜘蛛（序号: 前缀路由）
-│   ├── build_static.py         # 生成固定清单类源（18禁 / JE668）
+│   ├── build_static.py         # 生成固定清单类源（）
 │   ├── sync_upstream.py        # 拉上游 → 验活 → 去重 → 分片 → 版本自增
 │   ├── convert_maccms.py       # 转源器：TVBox 配置 / 苹果CMS 列表 → 蜘蛛
 │   ├── verify_spider.js        # 单源验活
@@ -37,7 +37,7 @@ tv4me/
 
 ## 导入 / 更新
 
-- **首次**：OmniBox 后台 → 蜘蛛源 → **GitHub 导入爬虫源** → 仓库填 `https://github.com/Metruee/tv4me` → 勾选 `spiders/` 整个目录。
+- **首次**：OmniBox 后台 → **GitHub 导入** → 仓库填 `https://github.com/Metruee/tv4me` → 勾选 `spiders/` 整个目录。
 - **之后**：源列表勾选 → 检查更新 → 从远端同步（依赖脚本内的 `@downloadURL` 与 `@version`，且仓库必须为 public）。
 
 ## 转新源
