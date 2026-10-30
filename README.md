@@ -2,19 +2,7 @@
 
 把上游 / 外部源转换成 OmniBox 爬虫源，每天自动重新验活、去重、按体积分片、版本自增。
 
-## 源清单
 
-| 文件 | 内容 | 体积 |
-|---|---|---|
-| `omnibox-采集A…G.js` | 影视采集站（自动分片） | 每片 ≤200KB |
-| `omnibox-网盘A…F.js` | 网盘影视 | 每片 ≤200KB |
-| `omnibox-短剧.js` | 短剧（4 源） | 53KB |
-| `omnibox-音乐听书.js` | 音乐 + 听书（7 源） | 107KB |
-| `omnibox-教育.js` | 纯教育（哔哩教育 + 贝乐虎） | 33KB |
-| `omnibox-动漫.js` | 动漫（1 源） | 31KB |
-| `omnibox-综合导航.js` | 哔哩大全 + MakkaPakka + 豆瓣推荐 | 83KB |
-| `omnibox-JE668.js` | JE668 原始站点中实测可用的 13 站 | 8KB |
-| `omnibox-18禁.js` | 成人资源 7 站（4 直连 + 3 需代理） | 7KB |
 
 ## 目录结构
 
@@ -88,7 +76,7 @@ NODE_PATH="$PWD/sdk:$PWD/node_modules" node verify_spider.js ../spiders/omnibox-
 - [qist/tvbox](https://github.com/qist/tvbox)
 - [hafrey1/LunaTV-config](https://github.com/hafrey1/LunaTV-config)、[vodtv/api](https://github.com/vodtv/api)、[qianqikun/LunaTV-config](https://github.com/qianqikun/LunaTV-config)、[quan-ge/MoonTV-SUB](https://github.com/quan-ge/MoonTV-SUB)
 - [mylazily/ziyuanzhan](https://github.com/mylazily/ziyuanzhan)、[laoma528/awesome-zhuiju-free](https://github.com/laoma528/awesome-zhuiju-free) — 采集站可用性监测
-- [twokittens/fongmi-porn](https://github.com/twokittens/fongmi-porn) — 成人向源参考
+- [twokittens/fongmi-porn](https://github.com/twokittens/fongmi-porn) 
 - [Supprise0901/TVBox_live](https://github.com/Supprise0901/TVBox_live)、[jn950/live](https://github.com/jn950/live) — 直播源
 
 **平台**
