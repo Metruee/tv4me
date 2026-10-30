@@ -21,7 +21,7 @@ tv4me/
 │   ├── verify_spider.js        # 单源验活
 │   ├── templates/              # 苹果CMS 通用层模板
 │   └── sdk/                    # omnibox_sdk / spider_runner 本地桩（仅验证用）
-└── .github/workflows/sync.yml  # 每天 UTC 18:00（北京 02:00）自动同步
+└── .github/workflows/sync.yml  # 每周日 UTC 18:00（北京周一 02:00）自动同步
 ```
 
 ## 自动同步做了什么
@@ -31,7 +31,7 @@ tv4me/
 3. 8 线程逐个实跑验活，**只合并真能返回内容的**；
 4. 去重：内容 SHA256 + 归一化站名；
 5. 按体积分片，单文件默认上限 `MAX_KB=200`；
-6. 版本号 `2.<YYYYMMDD>.<run_number>`，有变化自动 commit + push。
+6. 版本号 `3.<YYYYMMDD>.<HHMM>`，有变化自动 commit + push。
 
 容错：某源连续失败 ≤2 次仍保留（`config/health.json`），连续失败 3 次才剔除，避免网络抖动误删。
 
