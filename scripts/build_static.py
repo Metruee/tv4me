@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """按 config/static.json 生成"固定站点清单"类爬虫源（苹果CMS 通用层）。"""
-import json, os, re
+import json, os, re, sys, tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -14,6 +14,19 @@ def build(entry):
     js = head + body
     sites = "const SITES = " + json.dumps(entry["sites"], ensure_ascii=False, indent=2) + ";"
     js = re.sub(r"const SITES = \[[\s\S]*?\n\];", sites, js, count=1)
+    if entry.get("custom"):
+        sys.path.insert(0, HERE)
+        from build_merged import build as merged_build
+        tmpdir = tempfile.mkdtemp()
+        tmp = os.path.join(tmpdir, "maccms-core.js")
+        open(tmp, "w", encoding="utf-8").write(js)
+        files = [tmp] + [os.path.join(ROOT, c) for c in entry["custom"]]
+        out, n, _k = merged_build({
+            "name": entry["name"], "version": entry["version"], "desc": entry["desc"],
+            "download": entry["download"], "out": entry["out"], "files": files,
+        }, ROOT, ROOT)
+        return out, n
+
     out = os.path.join(ROOT, entry["out"])
     os.makedirs(os.path.dirname(out), exist_ok=True)
     open(out, "w", encoding="utf-8").write(js)

@@ -1,6 +1,120 @@
 // @name 18禁
-// @version 3.20261030.1219
-// @description 成人资源聚合（4 站直连可用 + 3 站需代理）
+// @version 3.20261030.2145
+// @description 成人资源聚合（部分站点需代理）
+// @downloadURL https://gh-proxy.com/https://raw.githubusercontent.com/Metruee/tv4me/main/spiders/omnibox-18禁.js
+// @dependencies axios,cheerio,crypto-js
+// @note 由 tv4me 自动生成 · 聚合自 Silent1566/OmniBox-Spider，仅供个人使用
+
+const OmniBox = require("omnibox_sdk");
+const runner = require("spider_runner");
+
+const SUBS = [];
+
+function _load(i, name, fn) {
+  const mod = { exports: {} };
+  let captured = null;
+  const fakeRunner = { run: function (h) { captured = h; } };
+  const fakeRequire = function (n) { return n === "spider_runner" ? fakeRunner : require(n); };
+  try {
+    fn(mod, mod.exports, fakeRequire);
+    SUBS[i] = { name: name, h: captured || mod.exports };
+  } catch (e) {
+    SUBS[i] = { name: name, h: null, err: String((e && e.message) || e) };
+  }
+}
+
+function _pfx(i, id) { return String(i) + ":" + String(id == null ? "" : id); }
+function _split(id) {
+  const s = String(id == null ? "" : id);
+  const c = s.indexOf(":");
+  if (c < 0) return [0, s];
+  return [parseInt(s.slice(0, c), 10) || 0, s.slice(c + 1)];
+}
+function _timeout(p, ms) {
+  let t;
+  const to = new Promise(function (_, rej) { t = setTimeout(function () { rej(new Error("timeout")); }, ms); });
+  return Promise.race([p, to]).finally(function () { clearTimeout(t); });
+}
+function _empty() { return { page: 1, pagecount: 1, total: 0, list: [] }; }
+function _subOk(s, k) { return s && s.h && typeof s.h[k] === "function"; }
+
+async function home(params, context) {
+  const results = await Promise.allSettled(SUBS.map(function (s, i) {
+    if (!_subOk(s, "home")) return Promise.resolve(null);
+    return _timeout(Promise.resolve().then(function () { return s.h.home(params, context); }), 4500).then(function (v) { return { i: i, v: v }; });
+  }));
+  const cls = [], list = [];
+  results.forEach(function (r) {
+    if (r.status !== "fulfilled" || !r.value || !r.value.v) return;
+    const i = r.value.i, v = r.value.v;
+    (v.class || []).forEach(function (c) { cls.push({ type_id: _pfx(i, c.type_id), type_name: c.type_name }); });
+    (v.list || []).slice(0, 20).forEach(function (x) { x.vod_id = _pfx(i, x.vod_id); list.push(x); });
+  });
+  return { class: cls, list: list.slice(0, 200) };
+}
+
+async function category(params, context) {
+  const parts = _split(params.categoryId);
+  const sub = SUBS[parts[0]];
+  if (!_subOk(sub, "category")) return _empty();
+  const p = Object.assign({}, params, { categoryId: parts[1] });
+  try {
+    const r = await _timeout(sub.h.category(p, context), 15000);
+    if (r && r.list) r.list.forEach(function (x) { x.vod_id = _pfx(parts[0], x.vod_id); });
+    return r;
+  } catch (e) { return _empty(); }
+}
+
+async function search(params, context) {
+  const kw = params.keyword || "";
+  if (!kw) return _empty();
+  const results = await Promise.allSettled(SUBS.map(function (s, i) {
+    if (!_subOk(s, "search")) return Promise.resolve(null);
+    return _timeout(Promise.resolve().then(function () { return s.h.search(params, context); }), 9000).then(function (v) { return { i: i, v: v }; });
+  }));
+  const list = [];
+  results.forEach(function (r) {
+    if (r.status !== "fulfilled" || !r.value || !r.value.v) return;
+    const i = r.value.i;
+    (r.value.v.list || []).forEach(function (x) { x.vod_id = _pfx(i, x.vod_id); list.push(x); });
+  });
+  return { page: 1, pagecount: 1, total: list.length, list: list };
+}
+
+async function detail(params, context) {
+  const parts = _split(params.videoId);
+  const sub = SUBS[parts[0]];
+  if (!_subOk(sub, "detail")) return { list: [] };
+  const p = Object.assign({}, params, { videoId: parts[1] });
+  try {
+    const r = await _timeout(sub.h.detail(p, context), 20000);
+    if (r && r.list) r.list.forEach(function (v) {
+      v.vod_id = _pfx(parts[0], v.vod_id);
+      (v.vod_play_sources || []).forEach(function (src) {
+        (src.episodes || []).forEach(function (ep) { ep.playId = _pfx(parts[0], ep.playId); });
+      });
+    });
+    return r;
+  } catch (e) { return { list: [] }; }
+}
+
+async function play(params, context) {
+  const parts = _split(params.playId);
+  const sub = SUBS[parts[0]];
+  if (!_subOk(sub, "play")) return { urls: [] };
+  const p = Object.assign({}, params, { playId: parts[1] });
+  try { return await _timeout(sub.h.play(p, context), 25000); }
+  catch (e) { return { urls: [] }; }
+}
+
+module.exports = { home, category, detail, search, play };
+runner.run(module.exports);
+
+
+_load(0, "maccms-core", function (module, exports, require) {
+// @name 18禁
+// @version 3.20261030.2145
+// @description 成人资源聚合（部分站点需代理）
 // @downloadURL https://gh-proxy.com/https://raw.githubusercontent.com/Metruee/tv4me/main/spiders/omnibox-18禁.js
 // @dependencies
 
@@ -226,3 +340,542 @@ async function play(params, context) {
 }
 
 runner.run(module.exports);
+
+});
+
+_load(1, "huangguo", function (module, exports, require) {
+// huangguo.js — 黄果短剧（移植自 FongMi/QuickJS 蜘蛛，I/O 层改为 OmniBox.request）
+// @name 黄果短剧
+// @version 3.20261030.2145
+// @description 黄果短剧（AI 短剧站），移植版
+// @dependencies crypto-js
+
+const OmniBox = require("omnibox_sdk");
+const runner = require("spider_runner");
+
+// huangguo_fongmi.js
+// FongMi / 影视TV QuickJS Spider adapter
+// Adapted from Yswag/xptv-extensions huangguo.js
+const CryptoJS = require("crypto-js");
+
+const SITE = 'https://huangguoai.com';
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+const IMG_KEY = 'f5d965df75336270';
+const IMG_IV = '97b60394abc2fbe1';
+const EMPTY_IMAGE = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/lXcAAAAASUVORK5CYII=';
+
+const HEADERS = {
+  'User-Agent': UA,
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'Accept-Language': 'zh-CN,zh;q=0.9',
+  'Referer': SITE + '/'
+};
+
+const CLASSES = [
+  { type_id: 'ai-duanju',  type_name: 'AI成人短剧' },
+  { type_id: 'ai-manju',   type_name: 'AI成人漫剧' },
+  { type_id: 'ai-huanlian', type_name: 'AI换脸' },
+  { type_id: 'ai-mogai',   type_name: 'AI魔改' },
+  { type_id: 'ranks/hot',  type_name: '排行榜' }
+];
+
+function fix(u) {
+  if (!u) return '';
+  u = String(u).replace(/&amp;/g, '&');
+  if (u.indexOf('//') === 0) return 'https:' + u;
+  if (u.indexOf('/') === 0) return SITE + u;
+  return u;
+}
+
+function coverUrl(u) {
+  return '';
+}
+
+function imageType(b64) {
+  if (b64.indexOf('/9j/') === 0) return 'image/jpeg';
+  if (b64.indexOf('iVBOR') === 0) return 'image/png';
+  if (b64.indexOf('UklGR') === 0) return 'image/webp';
+  if (b64.indexOf('R0lGOD') === 0) return 'image/gif';
+  return '';
+}
+
+function decryptCover(b64) {
+  if (imageType(b64)) return b64;
+  const ciphertext = CryptoJS.enc.Base64.parse(b64);
+  if (!ciphertext.sigBytes || ciphertext.sigBytes % 16) return '';
+  const plaintext = CryptoJS.AES.decrypt(
+    { ciphertext: ciphertext }, CryptoJS.enc.Utf8.parse(IMG_KEY),
+    { iv: CryptoJS.enc.Utf8.parse(IMG_IV), mode: CryptoJS.mode.CBC, padding: CryptoJS.pad.NoPadding }
+  );
+  let hex = CryptoJS.enc.Hex.stringify(plaintext).toLowerCase();
+  if (!/^(ffd8|89504e470d0a1a0a|52494646|47494638)/.test(hex)) return '';
+  const pad = parseInt(hex.slice(-2), 16);
+  if (pad > 0 && pad <= 16 && hex.slice(-2 * pad) === pad.toString(16).padStart(2, '0').repeat(pad)) {
+    hex = hex.slice(0, -2 * pad);
+  }
+  let end = hex.lastIndexOf('ffd9');
+  if (hex.indexOf('ffd8') === 0 && end >= 0) hex = hex.slice(0, end + 4);
+  end = hex.lastIndexOf('49454e44ae426082');
+  if (hex.indexOf('89504e47') === 0 && end >= 0) hex = hex.slice(0, end + 16);
+  const out = CryptoJS.enc.Base64.stringify(CryptoJS.enc.Hex.parse(hex));
+  return imageType(out) ? out : '';
+}
+
+function stripTags(s) {
+  return String(s || '')
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .trim();
+}
+
+async function getHtml(url, referer) {
+  const headers = Object.assign({}, HEADERS);
+  if (referer) headers.Referer = referer;
+  try {
+    const r = await OmniBox.request(url, { method: 'GET', headers: headers });
+    return (r && typeof r.body === 'string') ? r.body : '';
+  } catch (e) {
+    return '';
+  }
+}
+
+function gridSlices(html, allGrids) {
+  const re = /<div\s+class="[^"]*\bhg-card-grid\b[^"]*"[^>]*>/g;
+  const starts = [];
+  let m;
+  while ((m = re.exec(html)) !== null) starts.push(m.index + m[0].length);
+  if (!starts.length) return [html];
+  const slices = [];
+  const n = allGrids ? starts.length : 1;
+  for (let i = 0; i < n; i++) {
+    const to = i + 1 < starts.length ? starts[i + 1] : html.length;
+    slices.push(html.slice(starts[i], to));
+  }
+  return slices;
+}
+
+function cardBlocks(slice) {
+  const re = /<div\s+class="[^"]*\bhg-drama-card\b[^"]*"[^>]*>/g;
+  const starts = [];
+  let m;
+  while ((m = re.exec(slice)) !== null) starts.push(m.index + m[0].length);
+  const blocks = [];
+  for (let i = 0; i < starts.length; i++) {
+    const to = i + 1 < starts.length ? starts[i + 1] : slice.length;
+    blocks.push(slice.slice(starts[i], to));
+  }
+  return blocks;
+}
+
+function parseCardBlock(block) {
+  // New site uses /video/ID/ ; old source used /detail/ID/
+  const a = block.match(/href="[^"]*\/(?:detail|video)\/(\d+)\/[^"]*"/);
+  if (!a) return null;
+  const vid = a[1];
+
+  const imgM = block.match(/data-src="([^"]+)"/) || block.match(/src="([^"]+)"/);
+  let title = '';
+
+  const t = block.match(/hg-drama-card__title[^>]*>([\s\S]*?)<\/a>/);
+  if (t) title = stripTags(t[1]);
+
+  if (!title) {
+    const tt = block.match(/<a[^>]+href="[^"]*\/(?:detail|video)\/\d+\/[^"]*"[^>]*>([\s\S]*?)<\/a>/);
+    if (tt) title = stripTags(tt[1]);
+  }
+  if (!title) return null;
+
+  const ep = block.match(/hg-drama-card__episode[^>]*>([\s\S]*?)<\/span>/);
+  const score = block.match(/hg-drama-card__score[^>]*>([\s\S]*?)<\/span>/);
+  const rem = ep ? stripTags(ep[1]) : '';
+  const sc = score ? stripTags(score[1]) : '';
+
+  return {
+    vod_id: vid,
+    vod_name: title,
+    vod_pic: coverUrl(imgM ? imgM[1] : ''),
+    vod_remarks: rem && sc ? rem + ' · ' + sc : (rem || sc)
+  };
+}
+
+function parseGridCards(html, allGrids) {
+  if (!html) return [];
+  const list = [];
+  const seen = {};
+  const slices = gridSlices(html, allGrids);
+
+  for (let si = 0; si < slices.length; si++) {
+    const blocks = cardBlocks(slices[si]);
+    for (let bi = 0; bi < blocks.length; bi++) {
+      try {
+        const item = parseCardBlock(blocks[bi]);
+        if (!item || seen[item.vod_id]) continue;
+        seen[item.vod_id] = true;
+        list.push(item);
+      } catch (e) {}
+    }
+  }
+
+  // Fallback for site layout changes: parse links around /video/ID/
+  if (!list.length) {
+    const re = /<a\b[^>]*href="([^"]*\/video\/(\d+)\/)[^"]*"[^>]*>([\s\S]*?)<\/a>/g;
+    let m;
+    while ((m = re.exec(html)) !== null) {
+      const id = m[2];
+      if (seen[id]) continue;
+      let name = stripTags(m[3]);
+      name = name.replace(/全集在线观看\s*$/g, '').trim();
+      if (!name || /^\d+$/.test(name)) continue;
+      seen[id] = true;
+      list.push({ vod_id: id, vod_name: name, vod_pic: '', vod_remarks: '' });
+    }
+  }
+
+  return list;
+}
+
+function parseRanks(html) {
+  if (!html) return [];
+  const list = [];
+  const seen = {};
+
+  const listM = html.match(/<div\s+class="[^"]*\bhg-rank-list\b[^"]*"[^>]*>/);
+  const slice = html.slice(listM ? listM.index + listM[0].length : 0);
+  const re = /<div\s+class="[^"]*\bhg-rank-item\b[^"]*"[^>]*>/g;
+  const starts = [];
+  let m;
+  while ((m = re.exec(slice)) !== null) starts.push(m.index + m[0].length);
+
+  for (let i = 0; i < starts.length; i++) {
+    const to = i + 1 < starts.length ? starts[i + 1] : slice.length;
+    const block = slice.slice(starts[i], to);
+    const a = block.match(/href="[^"]*\/(?:detail|video)\/(\d+)\/[^"]*"/);
+    if (!a || seen[a[1]]) continue;
+
+    const id = a[1];
+    const imgM = block.match(/data-src="([^"]+)"/) || block.match(/src="([^"]+)"/);
+    let title = '';
+    const t = block.match(/hg-rank-item__title[^>]*>([\s\S]*?)<\/h2>/);
+    if (t) title = stripTags(t[1]);
+    if (!title) {
+      const tt = block.match(/<a[^>]+href="[^"]*\/(?:detail|video)\/\d+\/[^"]*"[^>]*>([\s\S]*?)<\/a>/);
+      if (tt) title = stripTags(tt[1]);
+    }
+    if (!title) continue;
+
+    const tags = block.match(/hg-rank-item__tags[^>]*>([\s\S]*?)<\/div>/);
+    seen[id] = true;
+    list.push({
+      vod_id: id,
+      vod_name: title,
+      vod_pic: coverUrl(imgM ? imgM[1] : ''),
+      vod_remarks: tags ? stripTags(tags[1]) : ''
+    });
+  }
+
+  return list;
+}
+
+function parseTitle(html, fallback) {
+  const h1 = html.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i);
+  if (h1) return stripTags(h1[1]);
+  const title = html.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i);
+  if (title) return stripTags(title[1]).replace(/\s*[-|｜].*$/, '').trim();
+  return fallback || '';
+}
+
+function parsePic(html) {
+  const data = html.match(/id=["']videoInitialData["'][^>]*>([\s\S]*?)<\/script>/i);
+  if (data) {
+    try {
+      const pic = JSON.parse(data[1]).coverSrc;
+      if (pic) return coverUrl(pic);
+    } catch (e) {}
+  }
+  const og = html.match(/<meta\b[^>]*(?:property|name)="og:image"[^>]*content="([^"]+)"[^>]*>/i) ||
+             html.match(/<meta\b[^>]*content="([^"]+)"[^>]*(?:property|name)="og:image"[^>]*>/i);
+  if (og) return coverUrl(og[1]);
+  const pic = html.match(/<img\b[^>]*(?:class="[^"]*hg-web-detail[^\"]*"[^>]*)?(?:data-src|src)="([^"]+)"/i);
+  return coverUrl(pic ? pic[1] : '');
+}
+
+function parseEpisodes(html, id) {
+  const eps = [];
+  const seen = {};
+
+  // First try the dedicated episode grid used by the original site source.
+  const gridM = html.match(/<div\s+class="[^"]*\bhg-web-detail__ep-grid\b[^"]*"[^>]*>([\s\S]*?)<\/div>/);
+  const scope = gridM ? gridM[1] : html;
+  const are = /<a\b[^>]*>[\s\S]*?<\/a>/g;
+  let m;
+  while ((m = are.exec(scope)) !== null) {
+    const tag = m[0];
+    const hrefM = tag.match(/href="([^"]+)"/);
+    if (!hrefM) continue;
+    const href = fix(hrefM[1]);
+    if (href.indexOf('/video/' + id + '/') === -1 && href.indexOf('/detail/' + id + '/') === -1) continue;
+
+    let ep = '';
+    const eidM = tag.match(/data-ep-id="([^"]*)"/);
+    if (eidM && eidM[1]) ep = eidM[1];
+    if (!ep) {
+      const p = href.match(/\/ep-(\d+)\/?/);
+      if (p) ep = p[1];
+    }
+    if (!ep) {
+      const tx = stripTags(tag).match(/(\d+)/);
+      if (tx) ep = String(parseInt(tx[1], 10));
+    }
+    if (!ep) ep = '1';
+    if (seen[ep]) continue;
+    seen[ep] = true;
+    eps.push({ ep: ep, url: href });
+  }
+
+  // If the grid selector changed, search the full page for /video/ID/ep-N/ links.
+  const vre = new RegExp('href="([^"]*/video/' + id + '/(?:ep-(\\d+)/)?)"', 'g');
+  while ((m = vre.exec(html)) !== null) {
+    const ep = m[2] || '1';
+    if (seen[ep]) continue;
+    seen[ep] = true;
+    eps.push({ ep: ep, url: fix(m[1]) });
+  }
+
+  if (!eps.length) eps.push({ ep: '1', url: SITE + '/video/' + id + '/' });
+  eps.sort(function (a, b) { return parseInt(a.ep, 10) - parseInt(b.ep, 10); });
+  return eps;
+}
+
+function normalizePlayUrl(u) {
+  if (!u) return '';
+  u = String(u)
+    .replace(/\\u0026/g, '&')
+    .replace(/\\\//g, '/')
+    .replace(/&amp;/g, '&')
+    .trim();
+  if (u.indexOf('//') === 0) u = 'https:' + u;
+  if (u.indexOf('/') === 0) u = SITE + u;
+  return u;
+}
+
+function extractPlay(html, ep) {
+  let play = '';
+  const m = html.match(/id=["']videoInitialData["'][^>]*>([\s\S]*?)<\/script>/i);
+  if (m) {
+    try {
+      const data = JSON.parse(m[1]);
+      const srcs = data && data.epPlaySrcs ? data.epPlaySrcs : {};
+      play = srcs[String(ep || '1')] || (data && data.videoSrc) || '';
+    } catch (e) {}
+  }
+
+  play = normalizePlayUrl(play);
+
+  if (!/^https?:\/\//i.test(play)) {
+    const direct = html.match(/https?:\\?\/\\?\/[^"]+?\.m3u8(?:\?[^"'<>\s]*)?/i) ||
+                   html.match(/https?:\/\/[^"'<>\s]+?\.m3u8(?:\?[^"'<>\s]*)?/i);
+    if (direct) play = normalizePlayUrl(direct[0]);
+  }
+  return play;
+}
+
+const _IMPL = {
+
+  home(filter) {
+    return JSON.stringify({ class: CLASSES });
+  },
+
+  async homeVod() {
+    try {
+      const html = await getHtml(SITE + '/');
+      return JSON.stringify({ list: parseGridCards(html, true) });
+    } catch (e) {
+      return JSON.stringify({ list: [] });
+    }
+  },
+
+  async category(tid, pg, filter, extend) {
+    const page = Math.max(1, parseInt(pg || '1', 10) || 1);
+    try {
+      let url;
+      if (tid === 'home') {
+        url = SITE + '/';
+      } else {
+        const id = String(tid || '').replace(/^\/+|\/+$/g, '');
+        url = SITE + '/' + id + '/' + (page > 1 ? page + '/' : '');
+      }
+      const html = await getHtml(url);
+      const isRank = String(tid || '').indexOf('rank') !== -1;
+      const list = isRank ? parseRanks(html).slice(0, 20) : parseGridCards(html, false);
+      if (isRank) {
+        return JSON.stringify({
+          list: list,
+          page: 1,
+          pagecount: 1,
+          limit: 20,
+          total: 20
+        });
+      }
+      
+      return JSON.stringify({
+        list: list,
+        page: page,
+        pagecount: list.length ? page + 1 : page,
+        limit: list.length || 20,
+        total: list.length ? (page + 1) * list.length : page * 20
+      });
+    } catch (e) {
+      return JSON.stringify({ list: [], page: page, pagecount: page });
+    }
+  },
+
+  async detail(id) {
+    id = String(id || '').trim();
+    if (!id) return JSON.stringify({ list: [] });
+    try {
+      const url = SITE + '/video/' + id + '/';
+      const html = await getHtml(url, SITE + '/');
+      const eps = parseEpisodes(html, id);
+      const playList = [];
+      for (let i = 0; i < eps.length; i++) {
+        const ep = eps[i];
+        const name = '第' + ep.ep + '集';
+        // Pass exact episode page URL + episode number to play().
+        playList.push(name + '$' + ep.url + '|||' + ep.ep);
+      }
+
+      const vod = {
+        vod_id: id,
+        vod_name: parseTitle(html, id),
+        vod_pic: parsePic(html),
+        vod_play_from: '黄果',
+        vod_play_url: playList.join('#')
+      };
+      return JSON.stringify({ list: [vod] });
+    } catch (e) {
+      return JSON.stringify({ list: [] });
+    }
+  },
+
+  async search(wd, quick, pg) {
+    const key = String(wd || '').trim();
+    const page = Math.max(1, parseInt(pg || '1', 10) || 1);
+    if (!key) return JSON.stringify({ list: [], page: page, pagecount: page });
+    try {
+      let url = SITE + '/search/video/' + encodeURIComponent(key) + '/';
+      if (page > 1) url += page + '/';
+      const html = await getHtml(url, SITE + '/');
+      const list = parseGridCards(html, false);
+      return JSON.stringify({
+        list: list,
+        page: page,
+        pagecount: list.length ? page + 1 : page,
+        limit: list.length || 20,
+        total: list.length ? (page + 1) * (list.length || 20) : page * 20
+      });
+    } catch (e) {
+      return JSON.stringify({ list: [], page: page, pagecount: page });
+    }
+  },
+
+  async play(flag, id, vipFlags) {
+    try {
+      const raw = String(id || '');
+      const parts = raw.split('|||');
+      const pageUrl = fix(parts[0]);
+      const ep = parts.length > 1 ? parts[1] : '1';
+      if (!pageUrl) return JSON.stringify({ parse: 0, url: '' });
+
+      const html = await getHtml(pageUrl, SITE + '/');
+      const play = extractPlay(html, ep);
+      if (!play) return JSON.stringify({ parse: 0, url: '' });
+
+      return JSON.stringify({
+        parse: 0,
+        url: play,
+        header: {
+          'User-Agent': UA,
+          'Referer': SITE + '/'
+        }
+      });
+    } catch (e) {
+      return JSON.stringify({ parse: 0, url: '' });
+    }
+  }
+};
+
+// ---------- OmniBox 适配层 ----------
+function _parse(s, fb) {
+  try { return JSON.parse(s); } catch (e) { return fb; }
+}
+
+function _toSources(vodPlayUrl) {
+  const eps = [];
+  String(vodPlayUrl || '').split('#').forEach(function (seg, i) {
+    if (!seg) return;
+    const k = seg.indexOf('$');
+    const name = k >= 0 ? seg.slice(0, k) : ('第' + (i + 1) + '集');
+    const pid = k >= 0 ? seg.slice(k + 1) : seg;
+    if (!pid) return;
+    eps.push({ name: name, playId: pid });
+  });
+  return eps;
+}
+
+async function home(params, context) {
+  let list = [];
+  try { const v = _parse(await _IMPL.homeVod(), {}); list = v.list || []; } catch (e) {}
+  return { class: CLASSES, list: list };
+}
+
+async function category(params, context) {
+  const tid = (params && params.categoryId) || 'ai-duanju';
+  const pg = (params && params.page) || 1;
+  let v = {};
+  try { v = _parse(await _IMPL.category(tid, pg, {}, {}), {}) || {}; } catch (e) {}
+  return { page: v.page || pg, pagecount: v.pagecount || pg, total: v.total || 0, list: v.list || [] };
+}
+
+async function detail(params, context) {
+  const id = String((params && params.videoId) || '').trim();
+  if (!id) return { list: [] };
+  let v = {};
+  try { v = _parse(await _IMPL.detail(id), {}) || {}; } catch (e) {}
+  const out = (v.list || []).map(function (x) {
+    return {
+      vod_id: x.vod_id,
+      vod_name: x.vod_name,
+      vod_pic: x.vod_pic || '',
+      vod_play_sources: [{ name: '黄果', episodes: _toSources(x.vod_play_url) }]
+    };
+  });
+  return { list: out };
+}
+
+async function search(params, context) {
+  const kw = String((params && params.keyword) || '').trim();
+  const pg = (params && params.page) || 1;
+  if (!kw) return { page: 1, pagecount: 1, total: 0, list: [] };
+  let v = {};
+  try { v = _parse(await _IMPL.search(kw, false, pg), {}) || {}; } catch (e) {}
+  return { page: v.page || pg, pagecount: v.pagecount || pg, total: v.total || 0, list: v.list || [] };
+}
+
+async function play(params, context) {
+  const id = String((params && params.playId) || '');
+  if (!id) return { urls: [] };
+  let v = {};
+  try { v = _parse(await _IMPL.play('', id), {}) || {}; } catch (e) {}
+  if (!v.url) return { urls: [] };
+  return { urls: [{ name: '默认', url: v.url, headers: v.header || undefined }] };
+}
+
+module.exports = { home: home, category: category, detail: detail, search: search, play: play };
+runner.run(module.exports);
+
+});
