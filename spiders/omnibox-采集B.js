@@ -1,6 +1,6 @@
 // @name 影视采集B(合并11源)
 // @version 2.20261030.1
-// @description 合并可用采集站 11 个
+// @description 自动同步：采集聚合
 // @downloadURL https://gh-proxy.com/https://raw.githubusercontent.com/Metruee/tv4me/main/spiders/omnibox-采集B.js
 // @dependencies axios,cheerio,crypto-js
 // @note 由 tv4me 自动生成 · 聚合自 Silent1566/OmniBox-Spider，仅供个人使用
