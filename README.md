@@ -64,23 +64,13 @@ NODE_PATH="$PWD/sdk:$PWD/node_modules" node verify_spider.js ../spiders/omnibox-
 
 ## 致谢
 
-本仓库的爬虫代码与配置几乎全部来自以下开源项目，感谢作者的无私分享：
+本仓库的爬虫代码与配置来自以下开源项目，感谢作者的无私分享：
 
-**直接使用**
-- [Silent1566/OmniBox-Spider](https://github.com/Silent1566/OmniBox-Spider) — 主体爬虫源（136 个）
-- [JE668/LunaTV-config-to-OmniBox-config](https://github.com/JE668/LunaTV-config-to-OmniBox-config) — 最初的 49 站聚合配置（`omnibox-JE668.js` 来源）
-- [yujian0815/fnmedia-ext](https://github.com/yujian0815/fnmedia-ext) — 飞牛影视在线扩展，苹果CMS 接口用法的参考
+- [Silent1566/OmniBox-Spider](https://github.com/Silent1566/OmniBox-Spider)
+- [JE668/LunaTV-config-to-OmniBox-config](https://github.com/JE668/LunaTV-config-to-OmniBox-config)
+- [yujian0815/fnmedia-ext](https://github.com/yujian0815/fnmedia-ext)
 
-**转换测试 / 数据来源**
-- [Lightconer/tvbox-ysc-config](https://github.com/Lightconer/tvbox-ysc-config)
-- [qist/tvbox](https://github.com/qist/tvbox)
-- [hafrey1/LunaTV-config](https://github.com/hafrey1/LunaTV-config)、[vodtv/api](https://github.com/vodtv/api)、[qianqikun/LunaTV-config](https://github.com/qianqikun/LunaTV-config)、[quan-ge/MoonTV-SUB](https://github.com/quan-ge/MoonTV-SUB)
-- [mylazily/ziyuanzhan](https://github.com/mylazily/ziyuanzhan)、[laoma528/awesome-zhuiju-free](https://github.com/laoma528/awesome-zhuiju-free) — 采集站可用性监测
-- [twokittens/fongmi-porn](https://github.com/twokittens/fongmi-porn) 
-- [Supprise0901/TVBox_live](https://github.com/Supprise0901/TVBox_live)、[jn950/live](https://github.com/jn950/live) — 直播源
-
-**平台**
-- OmniBox 本体作者与所有提供苹果CMS 接口的资源站站长
+以及 OmniBox 本体作者，和所有提供公开接口的资源站站长。
 
 以上项目的版权与许可证归各自作者所有；本仓库仅做聚合、转换与可用性验证，不存储、不分发任何影视内容。
 
@@ -90,5 +80,4 @@ NODE_PATH="$PWD/sdk:$PWD/node_modules" node verify_spider.js ../spiders/omnibox-
 
 - 单文件体积由 `MAX_KB` 控制（默认 200），可在 Actions 里改环境变量。
 - 上游 `Silent1566/OmniBox-Spider` 最后 push 2026-09-23，若长期不更新，可把 `sync_upstream.py` 的数据源换成别的仓库。
-- `18禁` 里 麻豆 / 老色逼 / 黄色仓库 三站需代理才能访问（本机直连超时），其余 4 站直连可用。
 - `@dependencies` 只声明 `axios,cheerio,crypto-js`；上游新源若引入其他依赖，需同步更新这一行。
