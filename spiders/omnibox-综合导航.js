@@ -1,5 +1,5 @@
 // @name 综合导航(合并)
-// @version 3.20261030.1223
+// @version 3.20261101.2127
 // @description 自动同步：综合导航
 // @downloadURL https://gh-proxy.com/https://raw.githubusercontent.com/Metruee/tv4me/main/spiders/omnibox-综合导航.js
 // @dependencies axios,cheerio,crypto-js
