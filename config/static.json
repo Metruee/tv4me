@@ -1,46 +1,5 @@
 [
   {
-    "name": "18禁",
-    "desc": "成人资源聚合（部分站点需代理）",
-    "version": "3.20261030.2145",
-    "out": "spiders/omnibox-18禁.js",
-    "kind": "static",
-    "sites": [
-      {
-        "name": "🔞黑料资源",
-        "api": "https://www.heiliaozyapi.com/api.php/provide/vod"
-      },
-      {
-        "name": "🔞小鸡资源",
-        "api": "https://api.xiaojizy.live/provide/vod"
-      },
-      {
-        "name": "🔞滴滴资源",
-        "api": "https://api.ddapi.cc/api.php/provide/vod"
-      },
-      {
-        "name": "🔞辣椒资源",
-        "api": "https://pz.v88.qzz.io/?url=https://apilj.com/api.php/provide/vod"
-      },
-      {
-        "name": "🔞麻豆视频",
-        "api": "https://91md.me/api.php/provide/vod"
-      },
-      {
-        "name": "🔞老色逼",
-        "api": "https://apilsbzy1.com/api.php/provide/vod"
-      },
-      {
-        "name": "🔞黄色仓库",
-        "api": "https://hsckzy.xyz/api.php/provide/vod"
-      }
-    ],
-    "download": "https://gh-proxy.com/https://raw.githubusercontent.com/Metruee/tv4me/main/spiders/omnibox-18禁.js",
-    "custom": [
-      "scripts/custom/huangguo.js"
-    ]
-  },
-  {
     "name": "JE668聚合采集",
     "desc": "JE668 原始 14 站中实测可用 13 站",
     "version": "3.20261030.1219",
